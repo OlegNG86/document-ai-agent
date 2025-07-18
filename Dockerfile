@@ -23,7 +23,7 @@ ENV PATH="$POETRY_HOME/bin:$PATH"
 COPY pyproject.toml poetry.lock* ./
 
 # Install Python dependencies
-RUN poetry install --no-dev
+RUN poetry install --only=main
 
 # Copy application code
 COPY ai_agent/ ./ai_agent/
