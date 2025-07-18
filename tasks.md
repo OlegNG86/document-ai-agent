@@ -9,7 +9,7 @@
   - Создать базовые **init**.py файлы
   - _Requirements: 5.1, 5.2, 6.1_
 
-- [ ] 2. Реализация базовых моделей данных
+- [x] 2. Реализация базовых моделей данных
 
   - Создать ai_agent/models/**init**.py и базовые dataclass модели
   - Реализовать Document, Session, Message, QueryResponse модели
