@@ -37,7 +37,7 @@ ENV PYTHONPATH=/app
 ENV DATA_PATH=/app/data
 ENV DOCUMENTS_PATH=/app/data/documents
 ENV CHROMA_PATH=/app/data/chroma_db
-ENV OLLAMA_HOST=http://ollama:11434
+ENV OLLAMA_HOST=http://host.docker.internal:11434
 
 # Expose port (if needed for future web interface)
 EXPOSE 8000
