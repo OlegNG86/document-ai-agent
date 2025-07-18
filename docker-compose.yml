@@ -1,0 +1,84 @@
+version: '3.8'
+
+services:
+  # Ollama service for local LLM
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ai-agent-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_ORIGINS=*
+    restart: unless-stopped
+    # GPU support (uncomment if you have NVIDIA GPU)
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+  # ChromaDB service for vector database
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: ai-agent-chromadb
+    ports:
+      - "8000:8000"
+    volumes:
+      - chroma_data:/chroma/chroma
+    environment:
+      - CHROMA_SERVER_HOST=0.0.0.0
+      - CHROMA_SERVER_HTTP_PORT=8000
+    restart: unless-stopped
+
+  # AI Agent application
+  ai-agent:
+    build: .
+    container_name: ai-agent-app
+    volumes:
+      - ./data:/app/data
+      - ./ai_agent:/app/ai_agent
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+      - CHROMA_HOST=http://chromadb:8000
+      - LOG_LEVEL=INFO
+    depends_on:
+      - ollama
+      - chromadb
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
+    command: ["poetry", "run", "python", "-m", "ai_agent.main", "status"]
+
+  # Model initialization service (runs once to pull required models)
+  model-init:
+    image: ollama/ollama:latest
+    container_name: ai-agent-model-init
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+    depends_on:
+      - ollama
+    restart: "no"
+    command: >
+      sh -c "
+        echo 'Waiting for Ollama service to be ready...' &&
+        sleep 10 &&
+        ollama pull llama3.1 &&
+        ollama pull nomic-embed-text &&
+        echo 'Models pulled successfully!'
+      "
+
+volumes:
+  ollama_data:
+    driver: local
+  chroma_data:
+    driver: local
+
+networks:
+  default:
+    name: ai-agent-network

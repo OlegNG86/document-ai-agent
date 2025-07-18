@@ -17,7 +17,7 @@
   - Написать unit тесты для моделей данных в tests/test_models.py
   - _Requirements: 1.1, 4.1, 4.2_
 
-- [ ] 3. Реализация Ollama Client
+- [x] 3. Реализация Ollama Client
 
   - Создать ai_agent/core/ollama_client.py
   - Реализовать OllamaClient класс с подключением к локальному Ollama сервису
@@ -26,7 +26,7 @@
   - Написать unit тесты с mock объектами в tests/test_ollama_client.py
   - _Requirements: 5.1, 5.3, 5.4_
 
-- [ ] 4. Реализация Document Manager
+- [x] 4. Реализация Document Manager
 
   - Создать ai_agent/core/document_manager.py
   - Реализовать DocumentManager для загрузки и обработки файлов txt/md
@@ -36,7 +36,7 @@
   - Написать unit тесты для всех операций с документами
   - _Requirements: 1.1, 1.2, 1.3, 1.4, 2.1, 2.2_
 
-- [ ] 5. Реализация Session Manager
+- [x] 5. Реализация Session Manager
 
   - Создать ai_agent/core/session_manager.py
   - Реализовать SessionManager для управления сессиями в памяти
@@ -45,7 +45,7 @@
   - Написать unit тесты для управления сессиями в tests/test_session_manager.py
   - _Requirements: 4.1, 4.2, 4.3, 4.4_
 
-- [ ] 6. Реализация Query Processor
+- [x] 6. Реализация Query Processor
 
   - Создать ai_agent/core/query_processor.py
   - Реализовать QueryProcessor для обработки пользовательских запросов
@@ -55,7 +55,7 @@
   - Написать unit тесты для различных типов запросов
   - _Requirements: 2.1, 2.2, 2.3, 2.4, 3.1, 3.2, 3.3, 3.4_
 
-- [ ] 7. Создание CLI интерфейса
+- [x] 7. Создание CLI интерфейса
 
   - Создать ai_agent/cli/**init**.py и основные CLI команды
   - Настроить Click для создания консольных команд (upload, query, session)
@@ -64,7 +64,7 @@
   - Создать ai_agent/main.py как entry point для CLI
   - _Requirements: 6.1, 6.2, 6.3_
 
-- [ ] 8. Интеграция компонентов и основной логики
+- [x] 8. Интеграция компонентов и основной логики
 
   - Соединить все компоненты в ai_agent/main.py
   - Реализовать основные сценарии использования (загрузка, запрос, проверка)
@@ -73,7 +73,7 @@
   - Добавить конфигурационные файлы для различных окружений
   - _Requirements: 6.4, 5.4_
 
-- [ ] 9. Создание Docker конфигурации
+- [x] 9. Создание Docker конфигурации
 
   - Создать Dockerfile для AI агента
   - Создать docker-compose.yml с сервисами (ollama, chromadb, ai-agent)
@@ -82,7 +82,7 @@
   - Протестировать запуск всей системы через docker-compose up
   - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5_
 
-- [ ] 10. Создание integration тестов
+- [x] 10. Создание integration тестов
 
   - Написать end-to-end тесты для основных сценариев в tests/test_integration.py
   - Добавить тестирование загрузки документов и поиска
@@ -91,7 +91,7 @@
   - Создать тестовые данные и fixtures для стабильного тестирования
   - _Requirements: 1.1, 2.1, 3.1, 4.1_
 
-- [ ] 11. Финализация и документация
+- [x] 11. Финализация и документация
   - Создать README.md с инструкциями по установке и использованию
   - Добавить примеры использования CLI команд и docker-compose
   - Создать документацию API для разработчиков
