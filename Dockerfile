@@ -27,7 +27,6 @@ RUN poetry install --only=main --no-root
 
 # Copy application code
 COPY ai_agent/ ./ai_agent/
-COPY data/ ./data/
 
 # Create data directories
 RUN mkdir -p data/documents data/chroma_db
