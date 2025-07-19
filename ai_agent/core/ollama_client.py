@@ -26,7 +26,7 @@ class OllamaClient:
         """
         self.host = host or os.getenv("OLLAMA_HOST", "http://localhost:11434")
         self.client = Client(host=self.host)
-        self.default_model = os.getenv("OLLAMA_DEFAULT_MODEL", "llama3.1")
+        self.default_model = os.getenv("OLLAMA_DEFAULT_MODEL", "qwen2.5vl:latest")
         
     def health_check(self) -> bool:
         """Check if Ollama service is available.
