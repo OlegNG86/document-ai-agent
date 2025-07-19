@@ -35,8 +35,8 @@ services:
     restart: unless-stopped
     stdin_open: true
     tty: true
-    # По умолчанию запускаем CLI в интерактивном режиме
-    command: ["poetry", "run", "python", "-m", "ai_agent.main", "--help"]
+    # Запускаем контейнер в режиме ожидания для интерактивной работы
+    command: ["tail", "-f", "/dev/null"]
 
 volumes:
   chroma_data:
