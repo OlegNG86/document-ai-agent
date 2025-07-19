@@ -379,6 +379,59 @@ class DocumentManager:
             logger.error(f"Failed to store document chunks: {e}")
             raise DocumentManagerError(f"Chunk storage failed: {e}")
     
+    def batch_upload_documents(
+        self, 
+        file_paths: List[str], 
+        common_metadata: Optional[Dict[str, Any]] = None,
+        progress_callback: Optional[callable] = None
+    ) -> List[Dict[str, Any]]:
+        """Upload multiple documents in batch.
+        
+        Args:
+            file_paths: List of file paths to upload.
+            common_metadata: Common metadata to apply to all documents.
+            progress_callback: Optional callback function for progress updates.
+            
+        Returns:
+            List of results for each file upload.
+        """
+        results = []
+        common_metadata = common_metadata or {}
+        
+        for i, file_path in enumerate(file_paths):
+            try:
+                # Prepare metadata for this file
+                file_metadata = common_metadata.copy()
+                file_metadata['batch_upload'] = 'true'
+                file_metadata['batch_index'] = str(i)
+                
+                # Upload document
+                doc_id = self.upload_document(file_path, file_metadata)
+                
+                result = {
+                    'success': True,
+                    'file_path': file_path,
+                    'document_id': doc_id,
+                    'error': None
+                }
+                
+            except Exception as e:
+                result = {
+                    'success': False,
+                    'file_path': file_path,
+                    'document_id': None,
+                    'error': str(e)
+                }
+                logger.error(f"Failed to upload {file_path} in batch: {e}")
+            
+            results.append(result)
+            
+            # Call progress callback if provided
+            if progress_callback:
+                progress_callback(i + 1, len(file_paths), file_path, result)
+        
+        return results
+    
     def get_collection_stats(self) -> Dict[str, Any]:
         """Get statistics about the document collection.
         

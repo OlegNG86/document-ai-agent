@@ -7,7 +7,7 @@ readme = "README.md"
 packages = [{include = "ai_agent"}]
 
 [tool.poetry.dependencies]
-python = "^3.8.1"
+python = "^3.9"
 ollama = "^0.3.0"
 chromadb = "^0.4.0"
 click = "^8.1.0"
@@ -50,4 +50,4 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "-v --cov=ai_agent --cov-report=term-missing"
+addopts = "-v"

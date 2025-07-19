@@ -4,7 +4,7 @@ import os
 import sys
 import click
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List, Dict, Any
 import logging
 
 from rich.console import Console
@@ -139,6 +139,56 @@ def upload(ctx, file_path, title, metadata):
         
     except DocumentManagerError as e:
         console.print(f"[red]❌ Ошибка загрузки: {e}")
+        sys.exit(1)
+
+
+@cli.command()
+@click.argument('path', type=click.Path(exists=True))
+@click.option('--recursive', '-r', is_flag=True, help='Рекурсивный поиск файлов в подпапках')
+@click.option('--pattern', '-p', default='*.txt,*.md,*.docx', help='Шаблон файлов для загрузки (по умолчанию: *.txt,*.md,*.docx)')
+@click.option('--metadata', '-m', multiple=True, help='Общие метаданные для всех файлов в формате key=value')
+@click.option('--skip-errors', is_flag=True, help='Продолжить загрузку при ошибках в отдельных файлах')
+@click.option('--dry-run', is_flag=True, help='Показать список файлов без загрузки')
+@click.pass_context
+def batch_upload(ctx, path, recursive, pattern, metadata, skip_errors, dry_run):
+    """Загрузить несколько документов одновременно из папки или по списку файлов."""
+    cli_instance = ctx.obj['cli']
+    
+    try:
+        # Parse common metadata
+        metadata_dict = {}
+        for item in metadata:
+            if '=' in item:
+                key, value = item.split('=', 1)
+                metadata_dict[key] = value
+        
+        # Find files to upload
+        files_to_upload = _find_files_for_batch_upload(path, pattern, recursive)
+        
+        if not files_to_upload:
+            console.print("[yellow]⚠️ Не найдено файлов для загрузки")
+            return
+        
+        # Show files that will be uploaded
+        console.print(f"[blue]📁 Найдено файлов для загрузки: {len(files_to_upload)}")
+        
+        if dry_run:
+            _show_batch_upload_preview(files_to_upload)
+            return
+        
+        # Confirm batch upload
+        if not Confirm.ask(f"Загрузить {len(files_to_upload)} файлов?"):
+            console.print("[yellow]Загрузка отменена")
+            return
+        
+        # Perform batch upload
+        results = _perform_batch_upload(cli_instance, files_to_upload, metadata_dict, skip_errors)
+        
+        # Show results
+        _show_batch_upload_results(results)
+        
+    except Exception as e:
+        console.print(f"[red]❌ Ошибка batch загрузки: {e}")
         sys.exit(1)
 
 
@@ -542,3 +592,243 @@ def _show_collection_stats(cli_instance):
 """
     
     console.print(Panel(stats_text, title="Статистика коллекции"))
+
+
+def _find_files_for_batch_upload(path: str, pattern: str, recursive: bool) -> List[Path]:
+    """Find files for batch upload based on pattern and recursion settings.
+    
+    Args:
+        path: Path to search (file or directory).
+        pattern: File patterns to match (comma-separated).
+        recursive: Whether to search recursively.
+        
+    Returns:
+        List of file paths to upload.
+    """
+    path_obj = Path(path)
+    files_to_upload = []
+    
+    # Parse patterns
+    patterns = [p.strip() for p in pattern.split(',')]
+    
+    if path_obj.is_file():
+        # Single file provided
+        files_to_upload.append(path_obj)
+    elif path_obj.is_dir():
+        # Directory provided - find matching files
+        for pattern_str in patterns:
+            if recursive:
+                files_to_upload.extend(path_obj.rglob(pattern_str))
+            else:
+                files_to_upload.extend(path_obj.glob(pattern_str))
+    
+    # Remove duplicates and sort
+    files_to_upload = sorted(list(set(files_to_upload)))
+    
+    # Filter out non-files (in case glob matched directories)
+    files_to_upload = [f for f in files_to_upload if f.is_file()]
+    
+    return files_to_upload
+
+
+def _show_batch_upload_preview(files: List[Path]) -> None:
+    """Show preview of files that will be uploaded.
+    
+    Args:
+        files: List of file paths.
+    """
+    table = Table(title="Предварительный просмотр загрузки")
+    table.add_column("№", style="cyan", width=4)
+    table.add_column("Файл", style="white")
+    table.add_column("Размер", style="green", width=10)
+    table.add_column("Тип", style="magenta", width=8)
+    
+    for i, file_path in enumerate(files, 1):
+        try:
+            size = file_path.stat().st_size
+            size_str = _format_file_size(size)
+        except:
+            size_str = "Неизвестно"
+        
+        table.add_row(
+            str(i),
+            str(file_path),
+            size_str,
+            file_path.suffix[1:] if file_path.suffix else "unknown"
+        )
+    
+    console.print(table)
+
+
+def _format_file_size(size_bytes: int) -> str:
+    """Format file size in human readable format.
+    
+    Args:
+        size_bytes: Size in bytes.
+        
+    Returns:
+        Formatted size string.
+    """
+    if size_bytes < 1024:
+        return f"{size_bytes} B"
+    elif size_bytes < 1024 * 1024:
+        return f"{size_bytes / 1024:.1f} KB"
+    elif size_bytes < 1024 * 1024 * 1024:
+        return f"{size_bytes / (1024 * 1024):.1f} MB"
+    else:
+        return f"{size_bytes / (1024 * 1024 * 1024):.1f} GB"
+
+
+def _perform_batch_upload(
+    cli_instance, 
+    files: List[Path], 
+    common_metadata: Dict[str, str], 
+    skip_errors: bool
+) -> Dict[str, Any]:
+    """Perform batch upload of files with progress tracking.
+    
+    Args:
+        cli_instance: CLI instance with document manager.
+        files: List of files to upload.
+        common_metadata: Common metadata for all files.
+        skip_errors: Whether to continue on individual file errors.
+        
+    Returns:
+        Results dictionary with success/failure counts and details.
+    """
+    from rich.progress import Progress, BarColumn, TextColumn, TimeRemainingColumn
+    
+    results = {
+        'total_files': len(files),
+        'successful': [],
+        'failed': [],
+        'skipped': []
+    }
+    
+    with Progress(
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+        TextColumn("({task.completed}/{task.total})"),
+        TimeRemainingColumn(),
+        console=console
+    ) as progress:
+        
+        upload_task = progress.add_task(
+            "Загрузка файлов...", 
+            total=len(files)
+        )
+        
+        for i, file_path in enumerate(files):
+            progress.update(
+                upload_task, 
+                description=f"Загрузка: {file_path.name}",
+                completed=i
+            )
+            
+            try:
+                # Prepare metadata for this file
+                file_metadata = common_metadata.copy()
+                file_metadata['original_path'] = str(file_path)
+                file_metadata['batch_upload'] = 'true'
+                
+                # Upload document
+                doc_id = cli_instance.document_manager.upload_document(
+                    file_path=str(file_path),
+                    metadata=file_metadata
+                )
+                
+                results['successful'].append({
+                    'file': str(file_path),
+                    'doc_id': doc_id,
+                    'size': file_path.stat().st_size
+                })
+                
+            except Exception as e:
+                error_info = {
+                    'file': str(file_path),
+                    'error': str(e)
+                }
+                
+                if skip_errors:
+                    results['failed'].append(error_info)
+                    logger.warning(f"Failed to upload {file_path}: {e}")
+                else:
+                    results['failed'].append(error_info)
+                    progress.update(upload_task, description=f"Ошибка: {file_path.name}")
+                    break
+        
+        progress.update(
+            upload_task, 
+            completed=len(files),
+            description="Загрузка завершена"
+        )
+    
+    return results
+
+
+def _show_batch_upload_results(results: Dict[str, Any]) -> None:
+    """Show results of batch upload operation.
+    
+    Args:
+        results: Results dictionary from batch upload.
+    """
+    total = results['total_files']
+    successful = len(results['successful'])
+    failed = len(results['failed'])
+    
+    # Summary panel
+    if failed == 0:
+        status_color = "green"
+        status_icon = "✅"
+        status_text = "Все файлы загружены успешно"
+    elif successful == 0:
+        status_color = "red"
+        status_icon = "❌"
+        status_text = "Не удалось загрузить ни одного файла"
+    else:
+        status_color = "yellow"
+        status_icon = "⚠️"
+        status_text = "Загрузка завершена с ошибками"
+    
+    summary_text = f"""
+[bold]Всего файлов:[/bold] {total}
+[bold green]Успешно:[/bold green] {successful}
+[bold red]Ошибки:[/bold red] {failed}
+"""
+    
+    console.print(Panel(
+        summary_text,
+        title=f"{status_icon} {status_text}",
+        border_style=status_color
+    ))
+    
+    # Show successful uploads
+    if results['successful']:
+        success_table = Table(title="Успешно загруженные файлы")
+        success_table.add_column("Файл", style="white")
+        success_table.add_column("ID документа", style="cyan")
+        success_table.add_column("Размер", style="green")
+        
+        for item in results['successful']:
+            success_table.add_row(
+                Path(item['file']).name,
+                item['doc_id'][:8] + "...",
+                _format_file_size(item['size'])
+            )
+        
+        console.print(success_table)
+    
+    # Show failed uploads
+    if results['failed']:
+        error_table = Table(title="Ошибки загрузки")
+        error_table.add_column("Файл", style="white")
+        error_table.add_column("Ошибка", style="red")
+        
+        for item in results['failed']:
+            error_table.add_row(
+                Path(item['file']).name,
+                item['error'][:50] + ("..." if len(item['error']) > 50 else "")
+            )
+        
+        console.print(error_table)
