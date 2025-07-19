@@ -411,11 +411,8 @@ def _document_check_mode(cli_instance, session_id):
 
 def _display_response(response):
     """Display query response."""
-    # Format response text as markdown
+    # Create markdown content
     response_md = Markdown(response.response)
-    
-    # Create panel with response
-    panel_content = f"{response_md}"
     
     # Add metadata if available
     metadata_parts = []
@@ -429,10 +426,12 @@ def _display_response(response):
     if response.relevant_documents:
         metadata_parts.append(f"Источники: {len(response.relevant_documents)} док.")
     
-    if metadata_parts:
-        panel_content += f"\n\n[dim]ℹ️ {' | '.join(metadata_parts)}[/dim]"
+    # Display response with proper markdown rendering
+    console.print(Panel(response_md, title="🤖 Ответ", border_style="blue"))
     
-    console.print(Panel(panel_content, title="🤖 Ответ", border_style="blue"))
+    # Display metadata separately if available
+    if metadata_parts:
+        console.print(f"[dim]ℹ️ {' | '.join(metadata_parts)}[/dim]")
 
 
 def _list_sessions(cli_instance):
