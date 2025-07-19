@@ -14,6 +14,11 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.prompt import Prompt, Confirm
 from rich.markdown import Markdown
 
+try:
+    from docx import Document as DocxDocument
+except ImportError:
+    DocxDocument = None
+
 from ..core.document_manager import DocumentManager, DocumentManagerError
 from ..core.session_manager import SessionManager, SessionManagerError
 from ..core.query_processor import QueryProcessor, QueryProcessorError
@@ -372,8 +377,16 @@ def _document_check_mode(cli_instance, session_id):
         # Check if it's a file path
         if Path(user_input).exists():
             try:
-                with open(user_input, 'r', encoding='utf-8') as f:
-                    document_content = f.read()
+                file_path = Path(user_input)
+                if file_path.suffix.lower() == '.docx':
+                    if DocxDocument is None:
+                        console.print("[red]❌ Библиотека python-docx не установлена")
+                        continue
+                    doc = DocxDocument(file_path)
+                    document_content = '\n'.join([paragraph.text for paragraph in doc.paragraphs if paragraph.text.strip()])
+                else:
+                    with open(user_input, 'r', encoding='utf-8') as f:
+                        document_content = f.read()
             except Exception as e:
                 console.print(f"[red]❌ Ошибка чтения файла: {e}")
                 continue
