@@ -10,6 +10,7 @@ import hashlib
 
 import chromadb
 from chromadb.config import Settings
+from docx import Document as DocxDocument
 
 from ..models.document import Document
 from .ollama_client import OllamaClient, OllamaConnectionError
@@ -83,13 +84,23 @@ class DocumentManager:
         if not file_path.exists():
             raise DocumentManagerError(f"File not found: {file_path}")
         
-        if file_path.suffix.lower() not in ['.txt', '.md']:
-            raise DocumentManagerError(f"Unsupported file type: {file_path.suffix}")
+        # Get supported file types from environment or use defaults
+        supported_types = os.getenv('SUPPORTED_FILE_TYPES', '.txt,.md,.docx').split(',')
+        supported_types = [ext.strip().lower() for ext in supported_types]
+        
+        if file_path.suffix.lower() not in supported_types:
+            raise DocumentManagerError(f"Unsupported file type: {file_path.suffix}. Supported types: {', '.join(supported_types)}")
         
         try:
-            # Read file content
-            with open(file_path, 'r', encoding='utf-8') as f:
-                content = f.read()
+            # Read file content based on file type
+            if file_path.suffix.lower() == '.docx':
+                # Read DOCX file
+                doc = DocxDocument(file_path)
+                content = '\n'.join([paragraph.text for paragraph in doc.paragraphs if paragraph.text.strip()])
+            else:
+                # Read text files (txt, md)
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
             
             if not content.strip():
                 raise DocumentManagerError("Document content is empty")
