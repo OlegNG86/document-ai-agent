@@ -1,0 +1,51 @@
+version: '3.8'
+
+services:
+  # ChromaDB service for vector database
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: ai-agent-chromadb
+    ports:
+      - "8000:8000"
+    volumes:
+      - chroma_data:/chroma/chroma
+    environment:
+      - CHROMA_SERVER_HOST=0.0.0.0
+      - CHROMA_SERVER_HTTP_PORT=8000
+    restart: unless-stopped
+
+  # AI Agent application
+  ai-agent:
+    build: .
+    container_name: ai-agent-app
+    network_mode: host
+    volumes:
+      - ./data:/app/data
+      - ./ai_agent:/app/ai_agent
+      - ./logs:/app/logs
+    environment:
+      - OLLAMA_HOST=http://localhost:11434
+      - OLLAMA_DEFAULT_MODEL=${OLLAMA_DEFAULT_MODEL:-qwen2.5vl:latest}
+      - OLLAMA_COMPLEX_MODEL=${OLLAMA_COMPLEX_MODEL:-qwen2.5vl:72b}
+      - OLLAMA_EMBEDDING_MODEL=${OLLAMA_EMBEDDING_MODEL:-nomic-embed-text:latest}
+      - CHROMA_HOST=http://localhost:8000
+      - LOG_LEVEL=INFO
+      - DATA_PATH=/app/data
+      - DOCUMENTS_PATH=/app/data/documents
+      - CHROMA_PATH=/app/data/chroma_db
+      - SUPPORTED_FILE_TYPES=${SUPPORTED_FILE_TYPES:-.txt,.md,.docx}
+    depends_on:
+      - chromadb
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
+    # Запускаем контейнер в режиме ожидания для интерактивной работы
+    command: ["tail", "-f", "/dev/null"]
+
+volumes:
+  chroma_data:
+    driver: local
+
+networks:
+  default:
+    name: ai-agent-network
