@@ -4,7 +4,8 @@
 
 ## Возможности
 
-- 📁 **Загрузка документов**: Поддержка txt и md файлов с автоматической индексацией
+- 📁 **Загрузка документов**: Поддержка txt, md и docx файлов с автоматической индексацией
+- 📦 **Пакетная загрузка**: Загрузка множества документов одновременно с прогресс-барами
 - 🔍 **Умный поиск**: Векторный поиск по содержимому документов с использованием ChromaDB
 - 💬 **Интерактивные сессии**: Контекстные диалоги с сохранением истории
 - ✅ **Проверка соответствия**: Анализ документов на соответствие нормативным требованиям
@@ -32,27 +33,32 @@
 ### Способ 1: Docker Compose (Рекомендуемый)
 
 1. Клонируйте репозиторий:
+
 ```bash
 git clone <repository-url>
 cd document-ai-agent
 ```
 
 2. Запустите систему:
+
 ```bash
 docker-compose up -d
 ```
 
 3. Дождитесь загрузки моделей:
+
 ```bash
 docker-compose logs model-init
 ```
 
 4. Проверьте статус:
+
 ```bash
 docker-compose exec ai-agent poetry run python -m ai_agent.main status
 ```
 
 5. Начните работу:
+
 ```bash
 docker-compose exec ai-agent poetry run python -m ai_agent.main query
 ```
@@ -60,6 +66,7 @@ docker-compose exec ai-agent poetry run python -m ai_agent.main query
 ### Способ 2: Локальная установка
 
 #### Требования
+
 - Python 3.8+
 - Poetry
 - Ollama (установлен и запущен)
@@ -67,11 +74,13 @@ docker-compose exec ai-agent poetry run python -m ai_agent.main query
 #### Установка
 
 1. Установите зависимости:
+
 ```bash
 poetry install
 ```
 
 2. Установите и запустите Ollama:
+
 ```bash
 # Установка Ollama (Linux/macOS)
 curl -fsSL https://ollama.ai/install.sh | sh
@@ -85,12 +94,14 @@ ollama pull nomic-embed-text
 ```
 
 3. Настройте окружение:
+
 ```bash
 cp .env.example .env
 # Отредактируйте .env при необходимости
 ```
 
 4. Запустите агента:
+
 ```bash
 poetry run docai status
 ```
@@ -100,15 +111,35 @@ poetry run docai status
 ### Команды CLI
 
 #### Загрузка документов
+
 ```bash
-# Загрузить документ
+# Загрузить один документ
 docai upload document.txt
 
 # Загрузить с метаданными
 docai upload document.md --title "Нормативы по закупкам" --metadata category=normative
+
+# Пакетная загрузка документов из папки
+docai batch-upload /path/to/documents
+
+# Пакетная загрузка с рекурсивным поиском
+docai batch-upload /path/to/documents --recursive
+
+# Пакетная загрузка с фильтрацией по типам файлов
+docai batch-upload /path/to/documents --pattern "*.txt,*.md,*.docx"
+
+# Предварительный просмотр без загрузки
+docai batch-upload /path/to/documents --dry-run
+
+# Пакетная загрузка с общими метаданными
+docai batch-upload /path/to/documents --metadata category=legal --metadata source=ministry
+
+# Продолжить загрузку при ошибках в отдельных файлах
+docai batch-upload /path/to/documents --skip-errors
 ```
 
 #### Работа с сессиями
+
 ```bash
 # Интерактивный режим (создает новую сессию)
 docai query
@@ -124,6 +155,7 @@ docai session --history SESSION_ID
 ```
 
 #### Управление документами
+
 ```bash
 # Список документов
 docai docs --list
@@ -136,6 +168,7 @@ docai docs --stats
 ```
 
 #### Статус системы
+
 ```bash
 # Проверить статус всех компонентов
 docai status
@@ -151,12 +184,15 @@ docai status
 - `/exit` - выйти из режима
 
 #### Примеры вопросов:
+
 - "Какие требования к документации по закупкам?"
 - "Что нужно указать в договоре с поставщиком?"
 - "Какие документы нужны для участия в тендере?"
 
 #### Проверка документов:
+
 В режиме `/check` можно:
+
 - Указать путь к файлу для проверки
 - Вставить текст документа напрямую
 - Получить анализ соответствия нормативным требованиям
@@ -165,24 +201,26 @@ docai status
 
 ### Переменные окружения
 
-| Переменная | Значение по умолчанию | Описание |
-|------------|----------------------|----------|
-| `OLLAMA_HOST` | `http://localhost:11434` | URL Ollama сервиса |
-| `OLLAMA_DEFAULT_MODEL` | `llama3.1` | Модель по умолчанию |
-| `DATA_PATH` | `data` | Путь к данным |
-| `CHROMA_PATH` | `data/chroma_db` | Путь к ChromaDB |
-| `LOG_LEVEL` | `INFO` | Уровень логирования |
-| `SESSION_TIMEOUT_HOURS` | `24` | Время жизни сессий |
+| Переменная              | Значение по умолчанию    | Описание            |
+| ----------------------- | ------------------------ | ------------------- |
+| `OLLAMA_HOST`           | `http://localhost:11434` | URL Ollama сервиса  |
+| `OLLAMA_DEFAULT_MODEL`  | `llama3.1`               | Модель по умолчанию |
+| `DATA_PATH`             | `data`                   | Путь к данным       |
+| `CHROMA_PATH`           | `data/chroma_db`         | Путь к ChromaDB     |
+| `LOG_LEVEL`             | `INFO`                   | Уровень логирования |
+| `SESSION_TIMEOUT_HOURS` | `24`                     | Время жизни сессий  |
 
 ### Настройка Docker
 
 Для использования GPU в Docker (NVIDIA):
+
 1. Установите nvidia-docker2
 2. Раскомментируйте секцию deploy в docker-compose.yml для сервиса ollama
 
 ## Разработка
 
 ### Запуск тестов
+
 ```bash
 # Все тесты
 poetry run pytest
@@ -190,7 +228,7 @@ poetry run pytest
 # Только unit тесты
 poetry run pytest tests/test_models.py
 
-# Только integration тесты  
+# Только integration тесты
 poetry run pytest tests/test_integration.py
 
 # С покрытием
@@ -198,6 +236,7 @@ poetry run pytest --cov=ai_agent
 ```
 
 ### Линтинг и форматирование
+
 ```bash
 # Форматирование кода
 poetry run black ai_agent tests
@@ -213,6 +252,7 @@ poetry run mypy ai_agent
 ```
 
 ### Структура проекта
+
 ```
 document-ai-agent/
 ├── ai_agent/                 # Основной код приложения
@@ -232,6 +272,7 @@ document-ai-agent/
 ## Устранение неполадок
 
 ### Ollama не подключается
+
 ```bash
 # Проверьте статус службы
 ollama list
@@ -244,6 +285,7 @@ curl http://localhost:11434/api/tags
 ```
 
 ### ChromaDB ошибки
+
 ```bash
 # Очистите базу данных
 rm -rf data/chroma_db
@@ -253,6 +295,7 @@ docai status
 ```
 
 ### Docker проблемы
+
 ```bash
 # Пересборка образов
 docker-compose build --no-cache
@@ -267,16 +310,24 @@ docker-compose down -v
 ## Примеры использования
 
 ### Загрузка нормативной документации
+
 ```bash
-# Загрузите документы с нормативами
+# Загрузите отдельные документы
 docai upload "Закон о контрактной системе.txt"
 docai upload "Регламент закупок.md" --metadata category=regulation
+
+# Или загрузите всю папку с документами сразу
+docai batch-upload ./normative-docs --recursive --metadata category=regulation
+
+# Предварительный просмотр перед загрузкой
+docai batch-upload ./normative-docs --dry-run
 
 # Проверьте загрузку
 docai docs --list
 ```
 
 ### Проверка договора
+
 ```bash
 # Запустите интерактивный режим
 docai query
@@ -289,6 +340,7 @@ docai query
 ```
 
 ### Консультация по требованиям
+
 ```bash
 # Запустите интерактивный режим
 docai query
