@@ -41,5 +41,5 @@ ENV OLLAMA_HOST=http://localhost:11434
 # Expose port (if needed for future web interface)
 EXPOSE 8000
 
-# Set entrypoint
-ENTRYPOINT ["poetry", "run", "python", "-m", "ai_agent.main"]
+# Default command (can be overridden by docker-compose)
+CMD ["poetry", "run", "python", "-m", "ai_agent.main", "--help"]
