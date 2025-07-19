@@ -31,8 +31,8 @@ class Document:
             raise ValueError("Document content cannot be empty")
         if not self.file_path:
             raise ValueError("Document file_path cannot be empty")
-        if self.file_type not in ['txt', 'md']:
-            raise ValueError("Document file_type must be 'txt' or 'md'")
+        if self.file_type not in ['txt', 'md', 'docx']:
+            raise ValueError("Document file_type must be 'txt', 'md', or 'docx'")
     
     def add_chunk(self, chunk: str, embedding_id: Optional[str] = None) -> None:
         """Add a text chunk to the document."""
