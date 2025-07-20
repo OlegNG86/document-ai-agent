@@ -238,14 +238,34 @@ docai status
 
 ### Переменные окружения
 
+#### Основные настройки
+
 | Переменная              | Значение по умолчанию    | Описание            |
 | ----------------------- | ------------------------ | ------------------- |
 | `OLLAMA_HOST`           | `http://localhost:11434` | URL Ollama сервиса  |
 | `OLLAMA_DEFAULT_MODEL`  | `llama3.1`               | Модель по умолчанию |
 | `DATA_PATH`             | `data`                   | Путь к данным       |
 | `CHROMA_PATH`           | `data/chroma_db`         | Путь к ChromaDB     |
-| `LOG_LEVEL`             | `INFO`                   | Уровень логирования |
 | `SESSION_TIMEOUT_HOURS` | `24`                     | Время жизни сессий  |
+
+#### Настройки логирования
+
+| Переменная            | Значение по умолчанию | Описание                                                |
+| --------------------- | --------------------- | ------------------------------------------------------- |
+| `LOG_LEVEL`           | `INFO`                | Уровень логирования (DEBUG/INFO/WARNING/ERROR/CRITICAL) |
+| `LOG_DIR`             | `logs`                | Директория для файлов логов                             |
+| `ENABLE_FILE_LOGGING` | `true`                | Включить запись логов в файлы                           |
+| `ENABLE_JSON_LOGGING` | `false`               | Использовать JSON формат для логов                      |
+| `MAX_LOG_SIZE_MB`     | `10`                  | Максимальный размер файла лога (МБ)                     |
+| `LOG_BACKUP_COUNT`    | `5`                   | Количество архивных файлов логов                        |
+
+#### Настройки производительности
+
+| Переменная                   | Значение по умолчанию | Описание                               |
+| ---------------------------- | --------------------- | -------------------------------------- |
+| `SLOW_OPERATION_THRESHOLD`   | `5.0`                 | Порог медленных операций (секунды)     |
+| `MEMORY_USAGE_THRESHOLD`     | `500`                 | Порог использования памяти (МБ)        |
+| `ENABLE_PERFORMANCE_MONITOR` | `true`                | Включить мониторинг производительности |
 
 ### Настройка Docker
 
@@ -305,6 +325,160 @@ document-ai-agent/
 ├── pyproject.toml          # Конфигурация Poetry
 └── README.md               # Документация
 ```
+
+## Логирование и мониторинг
+
+### Конфигурация логирования
+
+Система поддерживает гибкую настройку логирования через переменные окружения:
+
+```bash
+# Базовая конфигурация для разработки
+export LOG_LEVEL=DEBUG
+export ENABLE_FILE_LOGGING=true
+export LOG_DIR=logs
+
+# Продакшн конфигурация
+export LOG_LEVEL=INFO
+export ENABLE_JSON_LOGGING=true
+export LOG_DIR=/var/log/ai-agent
+export MAX_LOG_SIZE_MB=50
+export LOG_BACKUP_COUNT=10
+```
+
+### Структура логов
+
+Система создает следующие файлы логов:
+
+- `ai_agent.log` - основной лог всех операций
+- `errors.log` - только ошибки и критические события
+- `performance.log` - метрики производительности (если включен мониторинг)
+
+### Форматы логирования
+
+#### Консольный вывод (цветной)
+
+```
+2024-01-15 10:30:45 - ai_agent.core.document_manager - INFO - Document uploaded successfully: abc123 [doc=abc123, time=2.34s, op=upload_document]
+```
+
+#### JSON формат (для продакшн)
+
+```json
+{
+  "timestamp": "2024-01-15T10:30:45.123456",
+  "level": "INFO",
+  "logger": "ai_agent.core.document_manager",
+  "message": "Document uploaded successfully: abc123",
+  "document_id": "abc123",
+  "processing_time": 2.34,
+  "operation": "upload_document"
+}
+```
+
+### Мониторинг производительности
+
+Система автоматически отслеживает:
+
+- **Время выполнения операций** - с предупреждениями о медленных операциях
+- **Использование памяти** - с отслеживанием утечек памяти
+- **Системные ресурсы** - CPU, память, дисковое пространство
+- **Статистику операций** - количество, успешность, средние времена
+
+#### Просмотр метрик производительности
+
+```bash
+# Статус системы с метриками
+docai status
+
+# Детальная информация о производительности
+docai performance --stats
+
+# Медленные операции
+docai performance --slow-operations
+
+# Сброс статистики
+docai performance --reset
+```
+
+### Обработка ошибок
+
+Система использует многоуровневую обработку ошибок:
+
+#### Категории ошибок
+
+- **NETWORK** - сетевые ошибки и проблемы подключения
+- **VALIDATION** - ошибки валидации входных данных
+- **PROCESSING** - ошибки обработки документов
+- **RESOURCE** - проблемы с ресурсами (память, диск)
+- **CONFIGURATION** - ошибки конфигурации
+- **EXTERNAL_SERVICE** - проблемы с внешними сервисами (Ollama, ChromaDB)
+
+#### Уровни серьезности
+
+- **LOW** - незначительные проблемы
+- **MEDIUM** - проблемы, требующие внимания
+- **HIGH** - серьезные ошибки, влияющие на функциональность
+- **CRITICAL** - критические ошибки, требующие немедленного вмешательства
+
+#### Retry механизмы
+
+Система автоматически повторяет неудачные операции:
+
+- **Экспоненциальная задержка** для сетевых запросов
+- **Circuit breaker** для защиты от каскадных сбоев
+- **Настраиваемые стратегии** для разных типов операций
+
+### Примеры конфигурации логирования
+
+#### Разработка
+
+```bash
+# .env для разработки
+LOG_LEVEL=DEBUG
+ENABLE_FILE_LOGGING=true
+ENABLE_JSON_LOGGING=false
+LOG_DIR=logs/dev
+MAX_LOG_SIZE_MB=5
+LOG_BACKUP_COUNT=3
+SLOW_OPERATION_THRESHOLD=2.0
+```
+
+#### Продакшн
+
+```bash
+# .env для продакшн
+LOG_LEVEL=INFO
+ENABLE_FILE_LOGGING=true
+ENABLE_JSON_LOGGING=true
+LOG_DIR=/var/log/ai-agent
+MAX_LOG_SIZE_MB=50
+LOG_BACKUP_COUNT=30
+SLOW_OPERATION_THRESHOLD=10.0
+ENABLE_PERFORMANCE_MONITOR=true
+```
+
+#### Отладка
+
+```bash
+# .env для отладки
+LOG_LEVEL=DEBUG
+ENABLE_FILE_LOGGING=true
+ENABLE_JSON_LOGGING=false
+LOG_DIR=logs/debug
+MAX_LOG_SIZE_MB=1
+LOG_BACKUP_COUNT=2
+SLOW_OPERATION_THRESHOLD=1.0
+```
+
+### Интеграция с системами мониторинга
+
+Система поддерживает интеграцию с внешними системами мониторинга через:
+
+- **JSON логи** для Elasticsearch/Logstash
+- **Structured logging** для Prometheus/Grafana
+- **Webhook уведомления** для критических ошибок
+- **Метрики производительности** для систем APM
 
 ## Устранение неполадок
 

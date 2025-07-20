@@ -2,29 +2,16 @@
 
 import os
 import sys
-import logging
 from pathlib import Path
 
 from dotenv import load_dotenv
 
 from .cli.commands import cli
+from .utils.logging_config import logging_manager, get_logger
+from .utils.error_handling import handle_error, ErrorCategory, ErrorSeverity
 
 
-def setup_logging():
-    """Setup logging configuration."""
-    log_level = os.getenv('LOG_LEVEL', 'INFO').upper()
-    
-    logging.basicConfig(
-        level=getattr(logging, log_level),
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.StreamHandler(sys.stdout)
-        ]
-    )
-    
-    # Reduce noise from some libraries
-    logging.getLogger('chromadb').setLevel(logging.WARNING)
-    logging.getLogger('httpx').setLevel(logging.WARNING)
+logger = get_logger(__name__)
 
 
 def setup_environment():
@@ -53,17 +40,33 @@ def setup_environment():
 def main():
     """Main application entry point."""
     try:
-        # Setup environment and logging
+        # Setup environment first
         setup_environment()
-        setup_logging()
+        
+        # Logging is automatically configured by logging_manager
+        logger.info("Starting AI Agent application")
         
         # Start CLI
         cli()
         
     except KeyboardInterrupt:
+        logger.info("Application interrupted by user")
         print("\n👋 До свидания!")
         sys.exit(0)
     except Exception as e:
+        # Handle critical startup errors
+        error = handle_error(
+            error=e,
+            error_code="STARTUP_CRITICAL_ERROR",
+            category=ErrorCategory.CONFIGURATION,
+            severity=ErrorSeverity.CRITICAL,
+            suggestions=[
+                "Check environment configuration",
+                "Verify all dependencies are installed",
+                "Check log files for detailed error information"
+            ]
+        )
+        logger.critical(f"Critical startup error: {error.error_info.message}")
         print(f"❌ Критическая ошибка: {e}")
         sys.exit(1)
 
