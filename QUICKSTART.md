@@ -169,12 +169,35 @@ MODEL_SELECTION_STRATEGY=QUALITY
 OLLAMA_DEFAULT_MODEL=qwen2.5vl:72b
 ```
 
-## Мониторинг
+## Мониторинг и логирование
+
+### Настройка логирования
+
+Система поддерживает гибкую настройку логирования. Создайте или обновите `.env` файл:
+
+```bash
+# Базовая конфигурация
+LOG_LEVEL=INFO
+ENABLE_FILE_LOGGING=true
+LOG_DIR=logs
+MAX_LOG_SIZE_MB=10
+LOG_BACKUP_COUNT=5
+
+# Для отладки
+LOG_LEVEL=DEBUG
+ENABLE_JSON_LOGGING=false
+
+# Для продакшн
+LOG_LEVEL=INFO
+ENABLE_JSON_LOGGING=true
+LOG_DIR=/var/log/ai-agent
+MAX_LOG_SIZE_MB=50
+```
 
 ### Логи системы
 
 ```bash
-# Логи AI Agent
+# Логи AI Agent (Docker)
 docker-compose logs -f ai-agent
 
 # Логи ChromaDB
@@ -182,6 +205,34 @@ docker-compose logs -f chromadb
 
 # Все логи
 docker-compose logs -f
+
+# Файлы логов (если включено ENABLE_FILE_LOGGING)
+tail -f logs/ai_agent.log      # Основной лог
+tail -f logs/errors.log        # Только ошибки
+```
+
+### Структура логов
+
+Система создает следующие файлы:
+
+- `ai_agent.log` - все операции системы
+- `errors.log` - только ошибки и критические события
+- `performance.log` - метрики производительности
+
+### Мониторинг производительности
+
+```bash
+# Статус системы с метриками производительности
+docker-compose exec ai-agent poetry run python -m ai_agent.main status
+
+# Детальная информация о производительности
+docker-compose exec ai-agent poetry run python -m ai_agent.main performance --stats
+
+# Медленные операции
+docker-compose exec ai-agent poetry run python -m ai_agent.main performance --slow
+
+# Сброс статистики производительности
+docker-compose exec ai-agent poetry run python -m ai_agent.main performance --reset
 ```
 
 ### Статус компонентов
@@ -193,8 +244,53 @@ curl http://localhost:11434/api/tags
 # Статус ChromaDB
 curl http://localhost:8000/api/v1/heartbeat
 
-# Статус AI Agent
+# Полный статус AI Agent с метриками
 docker-compose exec ai-agent poetry run python -m ai_agent.main status
+```
+
+### Примеры логов
+
+#### Консольный вывод (цветной)
+
+```
+2024-01-15 10:30:45 - ai_agent.core.document_manager - INFO - Document uploaded successfully: abc123 [doc=abc123, time=2.34s, op=upload_document]
+```
+
+#### JSON формат (для анализа)
+
+```json
+{
+  "timestamp": "2024-01-15T10:30:45.123456",
+  "level": "INFO",
+  "logger": "ai_agent.core.document_manager",
+  "message": "Document uploaded successfully: abc123",
+  "document_id": "abc123",
+  "processing_time": 2.34,
+  "operation": "upload_document"
+}
+```
+
+### Обработка ошибок
+
+Система автоматически:
+
+- **Повторяет неудачные операции** с экспоненциальной задержкой
+- **Защищает от каскадных сбоев** с помощью circuit breaker
+- **Классифицирует ошибки** по категориям и уровням серьезности
+- **Предоставляет рекомендации** по устранению проблем
+
+#### Категории ошибок:
+
+- `NETWORK` - проблемы с сетью и подключениями
+- `VALIDATION` - ошибки валидации данных
+- `PROCESSING` - ошибки обработки документов
+- `EXTERNAL_SERVICE` - проблемы с Ollama/ChromaDB
+
+#### Пример обработки ошибки:
+
+```
+2024-01-15 10:30:45 - ai_agent.core.ollama_client - WARNING - Retry 1/3 for generate_response after 2.00s: Connection timeout
+2024-01-15 10:30:47 - ai_agent.core.ollama_client - INFO - Generated response successfully [time=1.23s, retry_count=1]
 ```
 
 ## Устранение проблем
@@ -337,6 +433,155 @@ docker-compose exec ai-agent poetry run python -m ai_agent.main check-document c
 2. Настройте автоматическое обновление документов с помощью batch-upload
 3. Используйте категоризацию для организации документов
 4. Оптимизируйте производительность
+
+## Настройка производительности
+
+### Оптимизация кэширования
+
+Система использует многоуровневое кэширование для ускорения работы:
+
+```bash
+# Статистика кэша
+docker-compose exec ai-agent poetry run python -m ai_agent.main cache --stats
+
+# Очистка кэша
+docker-compose exec ai-agent poetry run python -m ai_agent.main cache --clear
+
+# Очистка устаревших записей
+docker-compose exec ai-agent poetry run python -m ai_agent.main cache --cleanup
+```
+
+### Конфигурации производительности
+
+Выберите подходящую конфигурацию для вашей нагрузки:
+
+#### Разработка и тестирование
+
+```bash
+cp examples/performance-configs/development.env .env.performance
+```
+
+Оптимизировано для:
+
+- Быстрый запуск и отладка
+- Минимальное потребление ресурсов
+- Короткое время жизни кэша
+
+#### Продуктивная среда
+
+```bash
+cp examples/performance-configs/production.env .env.performance
+```
+
+Оптимизировано для:
+
+- Стабильная работа под нагрузкой
+- Балансированное использование ресурсов
+- Эффективное кэширование
+
+#### Высокие нагрузки
+
+```bash
+cp examples/performance-configs/high-load.env .env.performance
+```
+
+Оптимизировано для:
+
+- Максимальная пропускная способность
+- Большое количество одновременных запросов
+- Агрессивное кэширование
+
+### Мониторинг производительности
+
+```bash
+# Общая статистика производительности
+docker-compose exec ai-agent poetry run python -m ai_agent.main performance --stats
+
+# Медленные операции
+docker-compose exec ai-agent poetry run python -m ai_agent.main performance --slow
+
+# Статистика конкретной операции
+docker-compose exec ai-agent poetry run python -m ai_agent.main performance --stats --operation search_similar_chunks
+
+# Сброс статистики
+docker-compose exec ai-agent poetry run python -m ai_agent.main performance --reset
+```
+
+### Оптимизация чанкинга
+
+Система автоматически оптимизирует размер чанков в зависимости от типа документа:
+
+- **Юридические документы**: Меньшие чанки (600-800 символов) для точных ссылок
+- **Технические документы**: Большие чанки (1000-1500 символов) для сохранения контекста
+- **Структурированные документы**: Адаптивные чанки с сохранением структуры списков
+- **Повествовательные тексты**: Стандартные чанки (800-1000 символов)
+
+### Асинхронная обработка
+
+Для больших документов (>50KB) автоматически включается асинхронная обработка:
+
+```bash
+# Статистика асинхронной обработки
+docker-compose exec ai-agent poetry run python -m ai_agent.main status
+```
+
+### Рекомендации по оптимизации
+
+#### Для небольших систем (1-2 пользователя)
+
+```env
+ASYNC_MAX_WORKERS=2
+CACHE_QUERY_MAX_SIZE=200
+CACHE_EMBEDDING_MAX_SIZE=500
+PERFORMANCE_SLOW_THRESHOLD=3.0
+```
+
+#### Для средних систем (5-10 пользователей)
+
+```env
+ASYNC_MAX_WORKERS=4
+CACHE_QUERY_MAX_SIZE=500
+CACHE_EMBEDDING_MAX_SIZE=1000
+PERFORMANCE_SLOW_THRESHOLD=5.0
+```
+
+#### Для больших систем (10+ пользователей)
+
+```env
+ASYNC_MAX_WORKERS=8
+CACHE_QUERY_MAX_SIZE=1000
+CACHE_EMBEDDING_MAX_SIZE=2000
+PERFORMANCE_SLOW_THRESHOLD=10.0
+```
+
+### Мониторинг ресурсов
+
+Система автоматически отслеживает:
+
+- **CPU**: Предупреждения при >80%, критические при >95%
+- **Память**: Предупреждения при >80%, критические при >95%
+- **Диск**: Предупреждения при >85%, критические при >95%
+- **Время отклика**: Логирование медленных операций
+
+### Устранение проблем производительности
+
+#### Медленные запросы
+
+1. Проверьте статистику кэша: `cache --stats`
+2. Увеличьте размер кэша в конфигурации
+3. Проверьте медленные операции: `performance --slow`
+
+#### Высокое потребление памяти
+
+1. Уменьшите размер кэша
+2. Сократите количество воркеров
+3. Очистите кэш: `cache --clear`
+
+#### Медленная обработка документов
+
+1. Увеличьте количество воркеров
+2. Оптимизируйте размеры чанков
+3. Включите асинхронную обработку для меньших документов
 
 ## Полезные ссылки
 

@@ -2,7 +2,7 @@
 
 import os
 import uuid
-import logging
+import time
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from datetime import datetime
@@ -14,12 +14,23 @@ from docx import Document as DocxDocument
 
 from ..models.document import Document, DocumentCategory
 from .ollama_client import OllamaClient, OllamaConnectionError
+from ..utils.logging_config import get_logger
+from ..utils.error_handling import (
+    with_retry, handle_error, create_error,
+    ErrorCategory, ErrorSeverity, DATABASE_RETRY_CONFIG, FILE_IO_RETRY_CONFIG,
+    ProcessingError, ValidationError, ResourceError, is_temporary_error
+)
+from ..utils.health_monitor import health_monitor, HealthCheck, HealthStatus
+from ..utils.cache_manager import cache_manager
+from ..utils.chunk_optimizer import optimized_chunker
+from ..utils.async_processor import async_processor
+from ..utils.performance_monitor import performance_tracker
 
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
-class DocumentManagerError(Exception):
+class DocumentManagerError(ProcessingError):
     """Exception raised for document management errors."""
     pass
 
@@ -66,6 +77,9 @@ class DocumentManager:
         # Initialize Ollama client for embeddings
         self.ollama_client = OllamaClient()
         
+        # Register health check
+        health_monitor.register_health_check("document_storage", self._health_check)
+        
     def upload_document(
         self, 
         file_path: str, 
@@ -87,31 +101,74 @@ class DocumentManager:
         Raises:
             DocumentManagerError: If upload fails.
         """
+        start_time = time.time()
         file_path = Path(file_path)
         
-        if not file_path.exists():
-            raise DocumentManagerError(f"File not found: {file_path}")
+        logger.info(
+            f"Starting document upload: {file_path.name}",
+            extra={
+                'operation': 'upload_document',
+                'file_path': str(file_path),
+                'category': category.value,
+                'tags': tags or []
+            }
+        )
         
-        # Get supported file types from environment or use defaults
+        # Validate file existence
+        if not file_path.exists():
+            error = create_error(
+                error_code="DOCUMENT_FILE_NOT_FOUND",
+                message=f"File not found: {file_path}",
+                category=ErrorCategory.VALIDATION,
+                severity=ErrorSeverity.HIGH,
+                details={'file_path': str(file_path)},
+                suggestions=[
+                    "Check if the file path is correct",
+                    "Verify file permissions",
+                    "Ensure the file exists"
+                ]
+            )
+            raise DocumentManagerError(error.error_info, error)
+        
+        # Validate file type
         supported_types = os.getenv('SUPPORTED_FILE_TYPES', '.txt,.md,.docx').split(',')
         supported_types = [ext.strip().lower() for ext in supported_types]
         
         if file_path.suffix.lower() not in supported_types:
-            raise DocumentManagerError(f"Unsupported file type: {file_path.suffix}. Supported types: {', '.join(supported_types)}")
+            error = create_error(
+                error_code="DOCUMENT_UNSUPPORTED_FILE_TYPE",
+                message=f"Unsupported file type: {file_path.suffix}",
+                category=ErrorCategory.VALIDATION,
+                severity=ErrorSeverity.MEDIUM,
+                details={
+                    'file_type': file_path.suffix,
+                    'supported_types': supported_types
+                },
+                suggestions=[
+                    f"Convert file to one of supported formats: {', '.join(supported_types)}",
+                    "Check SUPPORTED_FILE_TYPES environment variable"
+                ]
+            )
+            raise DocumentManagerError(error.error_info, error)
         
         try:
             # Read file content based on file type
-            if file_path.suffix.lower() == '.docx':
-                # Read DOCX file
-                doc = DocxDocument(file_path)
-                content = '\n'.join([paragraph.text for paragraph in doc.paragraphs if paragraph.text.strip()])
-            else:
-                # Read text files (txt, md)
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    content = f.read()
+            content = self._read_file_content(file_path)
             
             if not content.strip():
-                raise DocumentManagerError("Document content is empty")
+                error = create_error(
+                    error_code="DOCUMENT_EMPTY_CONTENT",
+                    message="Document content is empty",
+                    category=ErrorCategory.VALIDATION,
+                    severity=ErrorSeverity.MEDIUM,
+                    details={'file_path': str(file_path)},
+                    suggestions=[
+                        "Check if the file contains text content",
+                        "Verify file encoding",
+                        "Try opening the file manually to check content"
+                    ]
+                )
+                raise DocumentManagerError(error.error_info, error)
             
             # Generate document ID
             doc_id = str(uuid.uuid4())
@@ -128,24 +185,75 @@ class DocumentManager:
                 metadata=metadata or {}
             )
             
-            # Copy file to storage
-            stored_file_path = self.storage_path / f"{doc_id}_{file_path.name}"
-            with open(stored_file_path, 'w', encoding='utf-8') as f:
-                f.write(content)
+            # Store file and process chunks
+            self._store_document_file(document, content)
             
-            # Update document file path to stored location
-            document.file_path = stored_file_path
+            # Use optimized chunking or async processing for large documents
+            if async_processor.should_process_async(content):
+                # For very large documents, use async processing
+                task_id = f"upload_{doc_id}"
+                task = async_processor.submit_task(
+                    task_id=task_id,
+                    file_path=file_path,
+                    content=content,
+                    metadata={'document_id': doc_id, 'category': category.value}
+                )
+                
+                # Wait for completion (with timeout)
+                result = async_processor.wait_for_task(task_id, timeout=300)  # 5 minutes
+                if result:
+                    chunks = [chunk['content'] for chunk in result['chunks']]
+                    logger.info(f"Async processing completed: {result['successful_chunks']}/{result['total_chunks']} chunks")
+                else:
+                    # Fallback to synchronous processing
+                    logger.warning("Async processing failed, falling back to sync")
+                    chunks, _ = optimized_chunker.chunk_document(content, file_path.name)
+            else:
+                # Use optimized chunking for regular documents
+                chunks, chunk_metadata = optimized_chunker.chunk_document(content, file_path.name)
+                logger.debug(f"Optimized chunking: {chunk_metadata}")
             
-            # Split into chunks and create embeddings
-            chunks = self._split_text_into_chunks(content)
             self._store_document_chunks(document, chunks)
             
-            logger.info(f"Document uploaded successfully: {doc_id}")
+            processing_time = time.time() - start_time
+            logger.info(
+                f"Document uploaded successfully: {doc_id}",
+                extra={
+                    'operation': 'upload_document',
+                    'document_id': doc_id,
+                    'processing_time': processing_time,
+                    'content_length': len(content),
+                    'chunk_count': len(chunks),
+                    'category': category.value
+                }
+            )
+            
             return doc_id
             
+        except DocumentManagerError:
+            # Re-raise DocumentManagerError as-is
+            raise
         except Exception as e:
-            logger.error(f"Failed to upload document: {e}")
-            raise DocumentManagerError(f"Upload failed: {e}")
+            processing_time = time.time() - start_time
+            error = handle_error(
+                error=e,
+                error_code="DOCUMENT_UPLOAD_FAILED",
+                category=ErrorCategory.PROCESSING,
+                severity=ErrorSeverity.HIGH,
+                details={
+                    'file_path': str(file_path),
+                    'processing_time': processing_time,
+                    'category': category.value
+                },
+                suggestions=[
+                    "Check file permissions and accessibility",
+                    "Verify ChromaDB connection",
+                    "Check available disk space",
+                    "Try uploading a smaller file first"
+                ],
+                context={'operation': 'upload_document', 'file_path': str(file_path)}
+            )
+            raise DocumentManagerError(error.error_info, e)
     
     def delete_document(self, document_id: str) -> bool:
         """Delete a document and its chunks.
@@ -277,6 +385,7 @@ class DocumentManager:
             logger.error(f"Failed to list documents: {e}")
             return []
     
+    @with_retry(DATABASE_RETRY_CONFIG, exceptions=(Exception,), logger=logger)
     def search_similar_chunks(
         self, 
         query: str, 
@@ -298,9 +407,38 @@ class DocumentManager:
         Raises:
             DocumentManagerError: If search fails.
         """
+        start_time = time.time()
+        
+        logger.debug(
+            f"Searching for similar chunks: '{query[:50]}...'",
+            extra={
+                'operation': 'search_similar_chunks',
+                'query_length': len(query),
+                'top_k': top_k,
+                'category_filter': category_filter.value if category_filter else None,
+                'tags_filter': tags_filter
+            }
+        )
+        
+        # Check cache first
+        cache_result = cache_manager.query_cache.get_query_result(
+            query, 
+            top_k=top_k, 
+            category_filter=category_filter, 
+            tags_filter=tags_filter
+        )
+        if cache_result is not None:
+            logger.debug("Returning cached search results")
+            return cache_result
+        
         try:
-            # Generate query embedding using Ollama
-            query_embedding = self.ollama_client.generate_embeddings(query)
+            # Check embedding cache first
+            query_embedding = cache_manager.query_cache.get_embedding(query)
+            if query_embedding is None:
+                # Generate query embedding using Ollama
+                query_embedding = self.ollama_client.generate_embeddings(query)
+                # Cache the embedding
+                cache_manager.query_cache.cache_embedding(query, query_embedding)
             
             # Build where clause for filtering
             where_clause = {}
@@ -345,17 +483,155 @@ class DocumentManager:
                 if len(similar_chunks) >= top_k:
                     break
             
+            processing_time = time.time() - start_time
+            logger.info(
+                f"Found {len(similar_chunks)} similar chunks",
+                extra={
+                    'operation': 'search_similar_chunks',
+                    'processing_time': processing_time,
+                    'query_length': len(query),
+                    'results_count': len(similar_chunks),
+                    'top_k': top_k
+                }
+            )
+            
+            # Cache the results
+            cache_manager.query_cache.cache_query_result(
+                query, 
+                similar_chunks, 
+                ttl=1800,  # 30 minutes
+                top_k=top_k, 
+                category_filter=category_filter, 
+                tags_filter=tags_filter
+            )
+            
             return similar_chunks
             
         except OllamaConnectionError as e:
-            logger.error(f"Ollama connection error during search: {e}")
-            raise DocumentManagerError(f"Search failed - Ollama unavailable: {e}")
+            processing_time = time.time() - start_time
+            error = handle_error(
+                error=e,
+                error_code="DOCUMENT_SEARCH_OLLAMA_ERROR",
+                category=ErrorCategory.EXTERNAL_SERVICE,
+                severity=ErrorSeverity.HIGH,
+                details={
+                    'query_length': len(query),
+                    'processing_time': processing_time,
+                    'top_k': top_k
+                },
+                suggestions=[
+                    "Check Ollama service status",
+                    "Verify embedding model is available",
+                    "Try restarting Ollama service"
+                ],
+                context={'operation': 'search_similar_chunks'}
+            )
+            raise DocumentManagerError(error.error_info, e)
         except Exception as e:
-            logger.error(f"Search failed: {e}")
-            raise DocumentManagerError(f"Search failed: {e}")
+            processing_time = time.time() - start_time
+            error = handle_error(
+                error=e,
+                error_code="DOCUMENT_SEARCH_FAILED",
+                category=ErrorCategory.PROCESSING,
+                severity=ErrorSeverity.HIGH,
+                details={
+                    'query_length': len(query),
+                    'processing_time': processing_time,
+                    'top_k': top_k,
+                    'category_filter': category_filter.value if category_filter else None
+                },
+                suggestions=[
+                    "Check ChromaDB connection",
+                    "Verify document collection exists",
+                    "Try with a simpler query",
+                    "Check available disk space"
+                ],
+                context={'operation': 'search_similar_chunks'}
+            )
+            raise DocumentManagerError(error.error_info, e)
     
+    def _read_file_content(self, file_path: Path) -> str:
+        """Read content from file based on file type.
+        
+        Args:
+            file_path: Path to the file.
+            
+        Returns:
+            File content as string.
+            
+        Raises:
+            Exception: If file reading fails.
+        """
+        try:
+            if file_path.suffix.lower() == '.docx':
+                # Read DOCX file
+                doc = DocxDocument(file_path)
+                content = '\n'.join([paragraph.text for paragraph in doc.paragraphs if paragraph.text.strip()])
+            else:
+                # Read text files (txt, md)
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+            
+            logger.debug(
+                f"Read file content: {len(content)} characters",
+                extra={
+                    'operation': 'read_file_content',
+                    'file_path': str(file_path),
+                    'file_type': file_path.suffix,
+                    'content_length': len(content)
+                }
+            )
+            
+            return content
+            
+        except Exception as e:
+            logger.error(
+                f"Failed to read file content: {e}",
+                extra={
+                    'operation': 'read_file_content',
+                    'file_path': str(file_path),
+                    'file_type': file_path.suffix
+                }
+            )
+            raise
+    
+    def _store_document_file(self, document: Document, content: str):
+        """Store document file in storage directory.
+        
+        Args:
+            document: Document object.
+            content: Document content.
+        """
+        try:
+            stored_file_path = self.storage_path / f"{document.id}_{document.file_path.name}"
+            
+            with open(stored_file_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+            
+            # Update document file path to stored location
+            document.file_path = stored_file_path
+            
+            logger.debug(
+                f"Stored document file: {stored_file_path}",
+                extra={
+                    'operation': 'store_document_file',
+                    'document_id': document.id,
+                    'stored_path': str(stored_file_path)
+                }
+            )
+            
+        except Exception as e:
+            logger.error(
+                f"Failed to store document file: {e}",
+                extra={
+                    'operation': 'store_document_file',
+                    'document_id': document.id
+                }
+            )
+            raise
+
     def _split_text_into_chunks(self, text: str) -> List[str]:
-        """Split text into overlapping chunks.
+        """Split text into overlapping chunks (legacy method, use optimized_chunker instead).
         
         Args:
             text: Text to split.
@@ -363,34 +639,8 @@ class DocumentManager:
         Returns:
             List of text chunks.
         """
-        if len(text) <= self.chunk_size:
-            return [text]
-        
-        chunks = []
-        start = 0
-        
-        while start < len(text):
-            end = start + self.chunk_size
-            
-            if end >= len(text):
-                chunks.append(text[start:])
-                break
-            
-            # Find the last sentence ending before the chunk limit
-            chunk_text = text[start:end]
-            last_sentence_end = max(
-                chunk_text.rfind('.'),
-                chunk_text.rfind('!'),
-                chunk_text.rfind('?'),
-                chunk_text.rfind('\n')
-            )
-            
-            if last_sentence_end > self.chunk_size // 2:  # Ensure chunk isn't too small
-                end = start + last_sentence_end + 1
-            
-            chunks.append(text[start:end])
-            start = end - self.chunk_overlap
-        
+        # Use optimized chunker for better performance
+        chunks, _ = optimized_chunker.chunk_document(text)
         return chunks
     
     def _store_document_chunks(self, document: Document, chunks: List[str]) -> None:
@@ -589,6 +839,84 @@ class DocumentManager:
         except Exception as e:
             logger.error(f"Failed to update document tags {document_id}: {e}")
             return False
+    
+    def get_reference_documents(self) -> List[Dict[str, Any]]:
+        """Get all reference/normative documents.
+        
+        Returns:
+            List of reference documents.
+        """
+        return self.list_documents(category_filter=DocumentCategory.REFERENCE)
+    
+    def _health_check(self) -> HealthCheck:
+        """Health check for document storage system.
+        
+        Returns:
+            HealthCheck result.
+        """
+        try:
+            start_time = time.time()
+            
+            # Check ChromaDB connection
+            collection_info = self.collection.get(limit=1)
+            
+            # Check storage directory
+            storage_exists = self.storage_path.exists() and self.storage_path.is_dir()
+            chroma_exists = self.chroma_path.exists() and self.chroma_path.is_dir()
+            
+            # Get document count
+            all_docs = self.list_documents()
+            doc_count = len(all_docs)
+            
+            # Check disk space
+            import shutil
+            storage_usage = shutil.disk_usage(self.storage_path)
+            storage_free_gb = storage_usage.free / 1024 / 1024 / 1024
+            
+            response_time = time.time() - start_time
+            
+            issues = []
+            if not storage_exists:
+                issues.append("Storage directory not accessible")
+            if not chroma_exists:
+                issues.append("ChromaDB directory not accessible")
+            if storage_free_gb < 1.0:  # Less than 1GB free
+                issues.append(f"Low disk space: {storage_free_gb:.1f}GB free")
+            
+            if issues:
+                status = HealthStatus.WARNING if storage_free_gb > 0.1 else HealthStatus.CRITICAL
+                message = f"Document storage issues: {'; '.join(issues)}"
+            else:
+                status = HealthStatus.HEALTHY
+                message = f"Document storage healthy with {doc_count} documents"
+            
+            return HealthCheck(
+                name="document_storage",
+                status=status,
+                message=message,
+                details={
+                    'document_count': doc_count,
+                    'storage_path': str(self.storage_path),
+                    'chroma_path': str(self.chroma_path),
+                    'storage_free_gb': storage_free_gb,
+                    'chunk_size': self.chunk_size,
+                    'chunk_overlap': self.chunk_overlap
+                },
+                timestamp=datetime.now(),
+                response_time=response_time
+            )
+            
+        except Exception as e:
+            return HealthCheck(
+                name="document_storage",
+                status=HealthStatus.CRITICAL,
+                message=f"Document storage check failed: {e}",
+                details={
+                    'error': str(e),
+                    'error_type': type(e).__name__
+                },
+                timestamp=datetime.now()
+            )
     
     def get_reference_documents(self) -> List[Dict[str, Any]]:
         """Get all reference/normative documents.

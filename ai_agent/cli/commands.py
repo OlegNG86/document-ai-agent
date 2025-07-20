@@ -6,6 +6,7 @@ import click
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 import logging
+from datetime import datetime
 
 from rich.console import Console
 from rich.table import Table
@@ -24,10 +25,20 @@ from ..models.document import DocumentCategory
 from ..core.session_manager import SessionManager, SessionManagerError
 from ..core.query_processor import QueryProcessor, QueryProcessorError
 from ..core.ollama_client import OllamaClient, OllamaConnectionError
+from ..utils.logging_config import get_logger
+from ..utils.performance_monitor import performance_monitor
+from ..utils.cache_manager import cache_manager
+from ..utils.async_processor import async_processor
+from ..utils.performance_monitor import performance_tracker
+from ..utils.error_handling import (
+    handle_error, create_error, ErrorCategory, ErrorSeverity,
+    error_notification_manager, is_network_error
+)
+from ..utils.health_monitor import health_monitor
 
 
 console = Console()
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class AIAgentCLI:
@@ -46,39 +57,68 @@ class AIAgentCLI:
     def _initialize_components(self):
         """Initialize all core components."""
         try:
-            with Progress(
-                SpinnerColumn(),
-                TextColumn("[progress.description]{task.description}"),
-                console=console
-            ) as progress:
-                task = progress.add_task("Инициализация компонентов...", total=None)
-                
-                # Initialize Ollama client
-                self.ollama_client = OllamaClient()
-                
-                # Check Ollama connection
-                if not self.ollama_client.health_check():
-                    console.print("[red]❌ Ошибка: Не удается подключиться к Ollama сервису")
-                    console.print("Убедитесь, что Ollama запущен (ollama serve)")
-                    sys.exit(1)
-                
-                # Initialize document manager
-                self.document_manager = DocumentManager()
-                
-                # Initialize session manager
-                self.session_manager = SessionManager()
-                
-                # Initialize query processor
-                self.query_processor = QueryProcessor(
-                    document_manager=self.document_manager,
-                    session_manager=self.session_manager,
-                    ollama_client=self.ollama_client
-                )
-                
-                progress.update(task, description="Компоненты инициализированы ✅")
+            with performance_tracker("cli_initialization"):
+                with Progress(
+                    SpinnerColumn(),
+                    TextColumn("[progress.description]{task.description}"),
+                    console=console
+                ) as progress:
+                    task = progress.add_task("Инициализация компонентов...", total=None)
+                    
+                    logger.info("Starting CLI components initialization")
+                    
+                    # Initialize Ollama client
+                    progress.update(task, description="Инициализация Ollama клиента...")
+                    self.ollama_client = OllamaClient()
+                    
+                    # Check Ollama connection
+                    progress.update(task, description="Проверка подключения к Ollama...")
+                    if not self.ollama_client.health_check():
+                        logger.error("Failed to connect to Ollama service")
+                        console.print("[red]❌ Ошибка: Не удается подключиться к Ollama сервису")
+                        console.print("Убедитесь, что Ollama запущен (ollama serve)")
+                        sys.exit(1)
+                    
+                    # Initialize document manager
+                    progress.update(task, description="Инициализация менеджера документов...")
+                    self.document_manager = DocumentManager()
+                    
+                    # Initialize session manager
+                    progress.update(task, description="Инициализация менеджера сессий...")
+                    self.session_manager = SessionManager()
+                    
+                    # Initialize query processor
+                    progress.update(task, description="Инициализация процессора запросов...")
+                    self.query_processor = QueryProcessor(
+                        document_manager=self.document_manager,
+                        session_manager=self.session_manager,
+                        ollama_client=self.ollama_client
+                    )
+                    
+                    progress.update(task, description="Компоненты инициализированы ✅")
+                    logger.info("CLI components initialized successfully")
+                    
+                    # Start health monitoring
+                    health_monitor.start_monitoring()
                 
         except Exception as e:
+            error = handle_error(
+                error=e,
+                error_code="CLI_INITIALIZATION_FAILED",
+                category=ErrorCategory.CONFIGURATION,
+                severity=ErrorSeverity.CRITICAL,
+                details={'component': 'CLI'},
+                suggestions=[
+                    "Check if Ollama service is running (ollama serve)",
+                    "Verify all dependencies are installed",
+                    "Check file permissions for data directories",
+                    "Review configuration settings"
+                ]
+            )
             console.print(f"[red]❌ Ошибка инициализации: {e}")
+            console.print("[yellow]💡 Рекомендации:")
+            for suggestion in error.error_info.suggestions or []:
+                console.print(f"  • {suggestion}")
             sys.exit(1)
 
 
@@ -95,6 +135,94 @@ def cli(ctx, verbose):
     
     # Initialize CLI
     ctx.obj['cli'] = AIAgentCLI()
+
+
+@cli.command()
+@click.option('--format', '-f', type=click.Choice(['table', 'json']), default='table', help='Формат вывода')
+@click.pass_context
+def health(ctx, format):
+    """Проверить состояние системы."""
+    try:
+        # Run health checks
+        health_results = health_monitor.run_all_checks()
+        health_summary = health_monitor.get_health_summary()
+        
+        if format == 'json':
+            import json
+            console.print(json.dumps({
+                'summary': health_summary,
+                'checks': {
+                    name: {
+                        'status': check.status.value,
+                        'message': check.message,
+                        'details': check.details,
+                        'timestamp': check.timestamp.isoformat(),
+                        'response_time': check.response_time
+                    }
+                    for name, check in health_results.items()
+                }
+            }, indent=2, ensure_ascii=False))
+        else:
+            # Display as table
+            table = Table(title="Состояние системы")
+            table.add_column("Компонент", style="cyan")
+            table.add_column("Статус", style="bold")
+            table.add_column("Сообщение")
+            table.add_column("Время отклика", justify="right")
+            
+            for name, check in health_results.items():
+                status_color = {
+                    'healthy': 'green',
+                    'warning': 'yellow',
+                    'critical': 'red',
+                    'unknown': 'dim'
+                }.get(check.status.value, 'white')
+                
+                status_icon = {
+                    'healthy': '✅',
+                    'warning': '⚠️',
+                    'critical': '❌',
+                    'unknown': '❓'
+                }.get(check.status.value, '?')
+                
+                response_time = f"{check.response_time:.2f}s" if check.response_time else "N/A"
+                
+                table.add_row(
+                    name.replace('_', ' ').title(),
+                    f"[{status_color}]{status_icon} {check.status.value.upper()}[/{status_color}]",
+                    check.message,
+                    response_time
+                )
+            
+            console.print(table)
+            
+            # Show overall status
+            overall_status = health_summary['overall_status']
+            status_color = {
+                'healthy': 'green',
+                'warning': 'yellow', 
+                'critical': 'red',
+                'unknown': 'dim'
+            }.get(overall_status, 'white')
+            
+            console.print(f"\n[{status_color}]Общий статус: {overall_status.upper()}[/{status_color}]")
+            
+            # Show error statistics if available
+            error_stats = error_notification_manager.get_error_summary()
+            if error_stats['total_errors'] > 0:
+                console.print(f"\n[yellow]📊 Статистика ошибок:[/yellow]")
+                console.print(f"  Всего ошибок: {error_stats['total_errors']}")
+                console.print(f"  Уникальных кодов: {error_stats['unique_error_codes']}")
+                console.print(f"  Недавних ошибок: {error_stats['recent_error_rate']}")
+                
+                if error_stats['most_frequent_errors']:
+                    console.print("  Частые ошибки:")
+                    for error_code, count in error_stats['most_frequent_errors']:
+                        console.print(f"    • {error_code}: {count}")
+    
+    except Exception as e:
+        console.print(f"[red]❌ Ошибка проверки состояния: {e}")
+        sys.exit(1)
 
 
 @cli.command()
@@ -154,6 +282,32 @@ def upload(ctx, file_path, title, metadata, category, tags):
         
     except DocumentManagerError as e:
         console.print(f"[red]❌ Ошибка загрузки: {e}")
+        
+        # Show suggestions if available
+        if hasattr(e, 'error_info') and e.error_info.suggestions:
+            console.print("[yellow]💡 Рекомендации:")
+            for suggestion in e.error_info.suggestions:
+                console.print(f"  • {suggestion}")
+        
+        sys.exit(1)
+    except Exception as e:
+        error = handle_error(
+            error=e,
+            error_code="DOCUMENT_UPLOAD_UNEXPECTED_ERROR",
+            category=ErrorCategory.PROCESSING,
+            severity=ErrorSeverity.HIGH,
+            details={'file_path': file_path, 'category': category},
+            suggestions=[
+                "Check file format and encoding",
+                "Verify file permissions",
+                "Try uploading a smaller file first",
+                "Check available disk space"
+            ]
+        )
+        console.print(f"[red]❌ Неожиданная ошибка: {e}")
+        console.print("[yellow]💡 Рекомендации:")
+        for suggestion in error.error_info.suggestions:
+            console.print(f"  • {suggestion}")
         sys.exit(1)
 
 
@@ -574,17 +728,249 @@ def status(ctx):
     # Get session stats
     session_stats = cli_instance.session_manager.get_session_stats()
     
+    # Get performance stats
+    from ..utils.performance_monitor import performance_monitor
+    perf_stats = performance_monitor.get_operation_stats()
+    
+    # Calculate average processing times
+    avg_times = {}
+    for op, stats in perf_stats.items():
+        if stats.get('count', 0) > 0:
+            avg_times[op] = stats.get('avg_duration', 0)
+    
+    # Get system resources
+    import psutil
+    try:
+        cpu_percent = psutil.cpu_percent(interval=1)
+        memory = psutil.virtual_memory()
+        disk = psutil.disk_usage('/')
+        
+        resources_text = (
+            f"CPU: {cpu_percent:.1f}% | "
+            f"RAM: {memory.percent:.1f}% | "
+            f"Диск: {(disk.used/disk.total)*100:.1f}%"
+        )
+    except:
+        resources_text = "Недоступно"
+    
     status_panel = Panel(
         f"[bold]Статус AI Агента[/bold]\n\n"
         f"🤖 Ollama: {ollama_status}\n"
         f"📚 Модели: {models_text}\n"
         f"📄 Документы: {doc_stats.get('total_documents', 0)} ({doc_stats.get('total_chunks', 0)} чанков)\n"
         f"💬 Сессии: {session_stats.get('active_sessions', 0)} активных / {session_stats.get('total_sessions', 0)} всего\n"
-        f"💭 Сообщения: {session_stats.get('total_messages', 0)} всего",
+        f"💭 Сообщения: {session_stats.get('total_messages', 0)} всего\n"
+        f"⚡ Ресурсы: {resources_text}\n"
+        f"📊 Операций выполнено: {sum(stats.get('count', 0) for stats in perf_stats.values())}",
         title="Системная информация"
     )
     
     console.print(status_panel)
+
+
+@cli.command()
+@click.option('--stats', is_flag=True, help='Показать статистику производительности')
+@click.option('--slow', is_flag=True, help='Показать медленные операции')
+@click.option('--reset', is_flag=True, help='Сбросить статистику')
+@click.option('--operation', '-o', help='Статистика для конкретной операции')
+@click.pass_context
+def performance(ctx, stats, slow, reset, operation):
+    """Управление мониторингом производительности."""
+    from ..utils.performance_monitor import performance_monitor
+    
+    if reset:
+        if Confirm.ask("Сбросить всю статистику производительности?"):
+            performance_monitor.reset_stats()
+            console.print("[green]✅ Статистика производительности сброшена")
+        return
+    
+    if slow:
+        slow_ops = performance_monitor.get_slow_operations()
+        
+        if not slow_ops:
+            console.print("[green]✅ Медленных операций не обнаружено")
+            return
+        
+        table = Table(title="Медленные операции")
+        table.add_column("Операция", style="cyan")
+        table.add_column("Время", style="red")
+        table.add_column("Дата", style="dim")
+        table.add_column("Статус", style="white")
+        
+        for op in slow_ops[-20:]:  # Last 20 slow operations
+            status = "✅ Успех" if op.success else "❌ Ошибка"
+            time_str = f"{op.duration:.2f}с"
+            date_str = datetime.fromtimestamp(op.start_time).strftime("%H:%M:%S")
+            
+            table.add_row(op.operation, time_str, date_str, status)
+        
+        console.print(table)
+        return
+    
+    if stats:
+        perf_stats = performance_monitor.get_operation_stats(operation)
+        
+        if operation and not perf_stats:
+            console.print(f"[yellow]Статистика для операции '{operation}' не найдена")
+            return
+        
+        if operation:
+            # Single operation stats
+            stats_data = perf_stats
+            console.print(Panel(
+                f"[bold]Статистика операции: {operation}[/bold]\n\n"
+                f"Выполнений: {stats_data.get('count', 0)}\n"
+                f"Успешных: {stats_data.get('success_count', 0)}\n"
+                f"Ошибок: {stats_data.get('error_count', 0)}\n"
+                f"Среднее время: {stats_data.get('avg_duration', 0):.2f}с\n"
+                f"Минимальное время: {stats_data.get('min_duration', 0):.2f}с\n"
+                f"Максимальное время: {stats_data.get('max_duration', 0):.2f}с\n"
+                f"Последнее выполнение: {stats_data.get('last_execution', 'Никогда')}",
+                title=f"Операция: {operation}"
+            ))
+        else:
+            # All operations stats
+            if not perf_stats:
+                console.print("[yellow]Статистика производительности пуста")
+                return
+            
+            table = Table(title="Статистика производительности")
+            table.add_column("Операция", style="cyan")
+            table.add_column("Выполнений", style="green")
+            table.add_column("Успешных", style="blue")
+            table.add_column("Ошибок", style="red")
+            table.add_column("Среднее время", style="yellow")
+            table.add_column("Макс. время", style="magenta")
+            
+            for op_name, op_stats in sorted(perf_stats.items()):
+                success_rate = (op_stats.get('success_count', 0) / max(op_stats.get('count', 1), 1)) * 100
+                
+                table.add_row(
+                    op_name,
+                    str(op_stats.get('count', 0)),
+                    f"{op_stats.get('success_count', 0)} ({success_rate:.1f}%)",
+                    str(op_stats.get('error_count', 0)),
+                    f"{op_stats.get('avg_duration', 0):.2f}с",
+                    f"{op_stats.get('max_duration', 0):.2f}с"
+                )
+            
+            console.print(table)
+        return
+    
+    # Default: show recent metrics
+    recent_metrics = performance_monitor.get_recent_metrics(limit=10)
+    
+    if not recent_metrics:
+        console.print("[yellow]Нет данных о производительности")
+        return
+    
+    table = Table(title="Последние операции")
+    table.add_column("Время", style="dim")
+    table.add_column("Операция", style="cyan")
+    table.add_column("Длительность", style="yellow")
+    table.add_column("Память", style="blue")
+    table.add_column("Статус", style="white")
+    
+    for metric in recent_metrics:
+        time_str = datetime.fromtimestamp(metric.start_time).strftime("%H:%M:%S")
+        duration_str = f"{metric.duration:.2f}с" if metric.duration else "N/A"
+        memory_str = f"{metric.memory_delta:+.1f}MB" if metric.memory_delta else "N/A"
+        status = "✅" if metric.success else "❌"
+        
+        table.add_row(time_str, metric.operation, duration_str, memory_str, status)
+    
+    console.print(table)
+
+
+@cli.command()
+@click.option('--stats', is_flag=True, help='Показать статистику кэша')
+@click.option('--clear', is_flag=True, help='Очистить все кэши')
+@click.option('--cleanup', is_flag=True, help='Очистить устаревшие записи')
+@click.pass_context
+def cache(ctx, stats, clear, cleanup):
+    """Управление кэшем системы."""
+    from ..utils.cache_manager import cache_manager
+    
+    if clear:
+        if Confirm.ask("Очистить все кэши?"):
+            cache_manager.clear_all_caches()
+            console.print("[green]✅ Все кэши очищены")
+        return
+    
+    if cleanup:
+        cleanup_stats = cache_manager.query_cache.cleanup_expired()
+        total_cleaned = cleanup_stats.get('total_expired', 0)
+        if total_cleaned > 0:
+            console.print(f"[green]✅ Очищено {total_cleaned} устаревших записей")
+        else:
+            console.print("[green]✅ Устаревших записей не найдено")
+        return
+    
+    if stats:
+        cache_stats = cache_manager.get_global_stats()
+        query_stats = cache_stats.get('query_cache_stats', {})
+        
+        if not query_stats:
+            console.print("[yellow]Статистика кэша недоступна")
+            return
+        
+        query_cache = query_stats.get('query_cache', {})
+        embedding_cache = query_stats.get('embedding_cache', {})
+        
+        # Query cache stats
+        console.print(Panel(
+            f"[bold]Кэш запросов:[/bold]\n"
+            f"Записей: {query_cache.get('size', 0)}/{query_cache.get('max_size', 0)}\n"
+            f"Попаданий: {query_cache.get('hits', 0)}\n"
+            f"Промахов: {query_cache.get('misses', 0)}\n"
+            f"Коэффициент попаданий: {query_cache.get('hit_rate', 0):.1%}\n"
+            f"Вытеснений: {query_cache.get('evictions', 0)}\n"
+            f"Размер: {query_cache.get('total_size_mb', 0):.1f} МБ\n\n"
+            f"[bold]Кэш эмбеддингов:[/bold]\n"
+            f"Записей: {embedding_cache.get('size', 0)}/{embedding_cache.get('max_size', 0)}\n"
+            f"Попаданий: {embedding_cache.get('hits', 0)}\n"
+            f"Промахов: {embedding_cache.get('misses', 0)}\n"
+            f"Коэффициент попаданий: {embedding_cache.get('hit_rate', 0):.1%}\n"
+            f"Вытеснений: {embedding_cache.get('evictions', 0)}\n"
+            f"Размер: {embedding_cache.get('total_size_mb', 0):.1f} МБ",
+            title="Статистика кэша"
+        ))
+        return
+    
+    # Default: show cache overview
+    cache_stats = cache_manager.get_global_stats()
+    query_stats = cache_stats.get('query_cache_stats', {})
+    
+    if query_stats:
+        query_cache = query_stats.get('query_cache', {})
+        embedding_cache = query_stats.get('embedding_cache', {})
+        
+        table = Table(title="Обзор кэша")
+        table.add_column("Тип кэша", style="cyan")
+        table.add_column("Записей", style="green")
+        table.add_column("Попаданий", style="blue")
+        table.add_column("Коэффициент", style="yellow")
+        table.add_column("Размер", style="magenta")
+        
+        table.add_row(
+            "Запросы",
+            f"{query_cache.get('size', 0)}/{query_cache.get('max_size', 0)}",
+            str(query_cache.get('hits', 0)),
+            f"{query_cache.get('hit_rate', 0):.1%}",
+            f"{query_cache.get('total_size_mb', 0):.1f} МБ"
+        )
+        
+        table.add_row(
+            "Эмбеддинги",
+            f"{embedding_cache.get('size', 0)}/{embedding_cache.get('max_size', 0)}",
+            str(embedding_cache.get('hits', 0)),
+            f"{embedding_cache.get('hit_rate', 0):.1%}",
+            f"{embedding_cache.get('total_size_mb', 0):.1f} МБ"
+        )
+        
+        console.print(table)
+    else:
+        console.print("[yellow]Кэш не инициализирован")
 
 
 def _show_help():
