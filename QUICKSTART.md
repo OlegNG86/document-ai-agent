@@ -65,6 +65,38 @@ docker-compose exec ai-agent poetry run python -m ai_agent.main query
 └─────────────────┘    └──────────────────┘    └─────────────────┘
 ```
 
+## Поддерживаемые форматы файлов
+
+Система поддерживает следующие форматы документов:
+
+| Формат               | Расширение | Особенности                      |
+| -------------------- | ---------- | -------------------------------- |
+| **Plain Text**       | `.txt`     | Базовое извлечение текста        |
+| **Markdown**         | `.md`      | Извлечение с подсчетом элементов |
+| **Microsoft Word**   | `.docx`    | Текст, таблицы, метаданные       |
+| **PDF Document**     | `.pdf`     | Текст по страницам               |
+| **Rich Text Format** | `.rtf`     | Форматированный текст            |
+
+### Просмотр поддерживаемых форматов
+
+```bash
+# Показать все поддерживаемые форматы
+docker-compose exec ai-agent poetry run python -m ai_agent.main formats
+```
+
+### Опции извлечения текста
+
+```bash
+# Показать извлеченный текст при загрузке
+docker-compose exec ai-agent poetry run python -m ai_agent.main upload document.pdf --show-text
+
+# Показать текст при проверке документа
+docker-compose exec ai-agent poetry run python -m ai_agent.main check-document contract.docx --show-text
+
+# Показать текст при пакетной загрузке
+docker-compose exec ai-agent poetry run python -m ai_agent.main batch-upload ./documents/ --show-text
+```
+
 ## Основные команды
 
 ### Управление документами
@@ -89,7 +121,7 @@ docker-compose exec ai-agent poetry run python -m ai_agent.main batch-upload ./d
 docker-compose exec ai-agent poetry run python -m ai_agent.main batch-upload ./documents/ --recursive
 
 # Пакетная загрузка с фильтрацией типов файлов
-docker-compose exec ai-agent poetry run python -m ai_agent.main batch-upload ./documents/ --pattern "*.txt,*.md,*.docx"
+docker-compose exec ai-agent poetry run python -m ai_agent.main batch-upload ./documents/ --pattern "*.txt,*.md,*.docx,*.pdf,*.rtf"
 
 # Предварительный просмотр без загрузки
 docker-compose exec ai-agent poetry run python -m ai_agent.main batch-upload ./documents/ --dry-run

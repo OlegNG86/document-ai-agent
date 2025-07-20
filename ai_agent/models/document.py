@@ -41,8 +41,8 @@ class Document:
             raise ValueError("Document content cannot be empty")
         if not self.file_path:
             raise ValueError("Document file_path cannot be empty")
-        if self.file_type not in ['txt', 'md', 'docx']:
-            raise ValueError("Document file_type must be 'txt', 'md', or 'docx'")
+        if self.file_type not in ['txt', 'md', 'docx', 'pdf', 'rtf']:
+            raise ValueError("Document file_type must be 'txt', 'md', 'docx', 'pdf', or 'rtf'")
         if isinstance(self.category, str):
             # Convert string to enum if needed
             self.category = DocumentCategory(self.category)

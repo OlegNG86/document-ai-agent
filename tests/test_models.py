@@ -44,14 +44,28 @@ class TestDocument:
     
     def test_document_validation_invalid_file_type(self):
         """Test document validation with invalid file type."""
-        with pytest.raises(ValueError, match="Document file_type must be 'txt', 'md', or 'docx'"):
+        with pytest.raises(ValueError, match="Document file_type must be 'txt', 'md', 'docx', 'pdf', or 'rtf'"):
             Document(
                 id="doc1",
                 title="Test",
                 content="Content",
-                file_path=Path("/test/file.pdf"),
-                file_type="pdf"
+                file_path=Path("/test/file.xlsx"),
+                file_type="xlsx"
             )
+    
+    def test_document_valid_file_types(self):
+        """Test document creation with all valid file types."""
+        valid_types = ['txt', 'md', 'docx', 'pdf', 'rtf']
+        
+        for file_type in valid_types:
+            doc = Document(
+                id=f"doc_{file_type}",
+                title=f"Test {file_type.upper()}",
+                content="Test content",
+                file_path=Path(f"/test/file.{file_type}"),
+                file_type=file_type
+            )
+            assert doc.file_type == file_type
     
     def test_document_add_chunk(self):
         """Test adding chunks to document."""

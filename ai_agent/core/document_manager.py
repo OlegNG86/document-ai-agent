@@ -10,7 +10,6 @@ import hashlib
 
 import chromadb
 from chromadb.config import Settings
-from docx import Document as DocxDocument
 
 from ..models.document import Document, DocumentCategory
 from .ollama_client import OllamaClient, OllamaConnectionError
@@ -25,6 +24,7 @@ from ..utils.cache_manager import cache_manager
 from ..utils.chunk_optimizer import optimized_chunker
 from ..utils.async_processor import async_processor
 from ..utils.performance_monitor import performance_tracker
+from ..utils.file_processor import file_processor, FileProcessorError
 
 
 logger = get_logger(__name__)
@@ -130,11 +130,9 @@ class DocumentManager:
             )
             raise DocumentManagerError(error.error_info, error)
         
-        # Validate file type
-        supported_types = os.getenv('SUPPORTED_FILE_TYPES', '.txt,.md,.docx').split(',')
-        supported_types = [ext.strip().lower() for ext in supported_types]
-        
-        if file_path.suffix.lower() not in supported_types:
+        # Validate file type using file processor
+        if not file_processor.is_supported_format(file_path):
+            supported_types = file_processor.get_supported_extensions()
             error = create_error(
                 error_code="DOCUMENT_UNSUPPORTED_FILE_TYPE",
                 message=f"Unsupported file type: {file_path.suffix}",
@@ -146,32 +144,41 @@ class DocumentManager:
                 },
                 suggestions=[
                     f"Convert file to one of supported formats: {', '.join(supported_types)}",
-                    "Check SUPPORTED_FILE_TYPES environment variable"
+                    "Check if required libraries are installed for this format"
                 ]
             )
             raise DocumentManagerError(error.error_info, error)
         
         try:
-            # Read file content based on file type
-            content = self._read_file_content(file_path)
+            # Extract file content using file processor
+            content, file_metadata = file_processor.extract_text(file_path)
             
-            if not content.strip():
+            # Validate extracted content
+            if not file_processor.validate_extracted_text(content):
                 error = create_error(
-                    error_code="DOCUMENT_EMPTY_CONTENT",
-                    message="Document content is empty",
+                    error_code="DOCUMENT_EMPTY_OR_INVALID_CONTENT",
+                    message="Document content is empty or invalid",
                     category=ErrorCategory.VALIDATION,
                     severity=ErrorSeverity.MEDIUM,
-                    details={'file_path': str(file_path)},
+                    details={
+                        'file_path': str(file_path),
+                        'content_length': len(content) if content else 0,
+                        'file_metadata': file_metadata
+                    },
                     suggestions=[
-                        "Check if the file contains text content",
-                        "Verify file encoding",
-                        "Try opening the file manually to check content"
+                        "Check if the file contains readable text content",
+                        "Verify file is not corrupted",
+                        "Try opening the file manually to check content",
+                        "Check file encoding if it's a text file"
                     ]
                 )
                 raise DocumentManagerError(error.error_info, error)
             
             # Generate document ID
             doc_id = str(uuid.uuid4())
+            
+            # Merge file metadata with user metadata
+            combined_metadata = {**(metadata or {}), **file_metadata}
             
             # Create document object
             document = Document(
@@ -182,7 +189,7 @@ class DocumentManager:
                 file_type=file_path.suffix[1:],  # Remove the dot
                 category=category,
                 tags=tags or [],
-                metadata=metadata or {}
+                metadata=combined_metadata
             )
             
             # Store file and process chunks
@@ -550,50 +557,24 @@ class DocumentManager:
             )
             raise DocumentManagerError(error.error_info, e)
     
-    def _read_file_content(self, file_path: Path) -> str:
-        """Read content from file based on file type.
+    def get_supported_file_types(self) -> List[str]:
+        """Get list of supported file types.
+        
+        Returns:
+            List of supported file extensions.
+        """
+        return file_processor.get_supported_extensions()
+    
+    def get_file_type_description(self, file_path: Path) -> str:
+        """Get human-readable description of file type.
         
         Args:
             file_path: Path to the file.
             
         Returns:
-            File content as string.
-            
-        Raises:
-            Exception: If file reading fails.
+            File type description.
         """
-        try:
-            if file_path.suffix.lower() == '.docx':
-                # Read DOCX file
-                doc = DocxDocument(file_path)
-                content = '\n'.join([paragraph.text for paragraph in doc.paragraphs if paragraph.text.strip()])
-            else:
-                # Read text files (txt, md)
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    content = f.read()
-            
-            logger.debug(
-                f"Read file content: {len(content)} characters",
-                extra={
-                    'operation': 'read_file_content',
-                    'file_path': str(file_path),
-                    'file_type': file_path.suffix,
-                    'content_length': len(content)
-                }
-            )
-            
-            return content
-            
-        except Exception as e:
-            logger.error(
-                f"Failed to read file content: {e}",
-                extra={
-                    'operation': 'read_file_content',
-                    'file_path': str(file_path),
-                    'file_type': file_path.suffix
-                }
-            )
-            raise
+        return file_processor.get_file_type_description(file_path)
     
     def _store_document_file(self, document: Document, content: str):
         """Store document file in storage directory.

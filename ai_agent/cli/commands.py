@@ -126,7 +126,10 @@ class AIAgentCLI:
 @click.option('--verbose', '-v', is_flag=True, help='Включить подробный вывод')
 @click.pass_context
 def cli(ctx, verbose):
-    """Локальный AI агент для работы с нормативной документацией."""
+    """Локальный AI агент для работы с нормативной документацией.
+    
+    Поддерживаемые форматы файлов: TXT, MD, DOCX, PDF, RTF
+    """
     ctx.ensure_object(dict)
     
     # Setup logging
@@ -231,12 +234,20 @@ def health(ctx, format):
 @click.option('--metadata', '-m', multiple=True, help='Метаданные в формате key=value')
 @click.option('--category', '-c', type=click.Choice(['general', 'reference', 'target']), default='general', help='Категория документа')
 @click.option('--tags', help='Теги документа (через запятую)')
+@click.option('--show-text', is_flag=True, help='Показать извлеченный текст из документа')
 @click.pass_context
-def upload(ctx, file_path, title, metadata, category, tags):
-    """Загрузить документ в базу знаний."""
+def upload(ctx, file_path, title, metadata, category, tags, show_text):
+    """Загрузить документ в базу знаний.
+    
+    Поддерживаемые форматы: TXT, MD, DOCX, PDF, RTF
+    """
     cli_instance = ctx.obj['cli']
     
     try:
+        # Set show extracted text option in file processor
+        from ..utils.file_processor import file_processor
+        file_processor.show_extracted_text = show_text
+        
         # Parse metadata
         metadata_dict = {}
         for item in metadata:
@@ -254,6 +265,11 @@ def upload(ctx, file_path, title, metadata, category, tags):
         doc_tags = []
         if tags:
             doc_tags = [tag.strip() for tag in tags.split(',') if tag.strip()]
+        
+        # Show file type info
+        file_path_obj = Path(file_path)
+        file_type_desc = cli_instance.document_manager.get_file_type_description(file_path_obj)
+        console.print(f"[blue]📄 Тип файла: {file_type_desc}[/blue]")
         
         with Progress(
             SpinnerColumn(),
@@ -316,12 +332,20 @@ def upload(ctx, file_path, title, metadata, category, tags):
 @click.option('--title', '-t', help='Заголовок эталонного документа')
 @click.option('--tags', help='Теги документа (через запятую)')
 @click.option('--metadata', '-m', multiple=True, help='Метаданные в формате key=value')
+@click.option('--show-text', is_flag=True, help='Показать извлеченный текст из документа')
 @click.pass_context
-def upload_reference(ctx, file_path, title, tags, metadata):
-    """Загрузить эталонный/нормативный документ."""
+def upload_reference(ctx, file_path, title, tags, metadata, show_text):
+    """Загрузить эталонный/нормативный документ.
+    
+    Поддерживаемые форматы: TXT, MD, DOCX, PDF, RTF
+    """
     cli_instance = ctx.obj['cli']
     
     try:
+        # Set show extracted text option in file processor
+        from ..utils.file_processor import file_processor
+        file_processor.show_extracted_text = show_text
+        
         # Parse metadata
         metadata_dict = {}
         for item in metadata:
@@ -336,6 +360,11 @@ def upload_reference(ctx, file_path, title, tags, metadata):
         doc_tags = []
         if tags:
             doc_tags = [tag.strip() for tag in tags.split(',') if tag.strip()]
+        
+        # Show file type info
+        file_path_obj = Path(file_path)
+        file_type_desc = cli_instance.document_manager.get_file_type_description(file_path_obj)
+        console.print(f"[blue]📄 Тип файла: {file_type_desc}[/blue]")
         
         with Progress(
             SpinnerColumn(),
@@ -370,18 +399,26 @@ def upload_reference(ctx, file_path, title, tags, metadata):
 @cli.command()
 @click.argument('path', type=click.Path(exists=True))
 @click.option('--recursive', '-r', is_flag=True, help='Рекурсивный поиск файлов в подпапках')
-@click.option('--pattern', '-p', default='*.txt,*.md,*.docx', help='Шаблон файлов для загрузки (по умолчанию: *.txt,*.md,*.docx)')
+@click.option('--pattern', '-p', default='*.txt,*.md,*.docx,*.pdf,*.rtf', help='Шаблон файлов для загрузки (по умолчанию: *.txt,*.md,*.docx,*.pdf,*.rtf)')
 @click.option('--metadata', '-m', multiple=True, help='Общие метаданные для всех файлов в формате key=value')
 @click.option('--category', '-c', type=click.Choice(['general', 'reference', 'target']), default='general', help='Категория для всех документов')
 @click.option('--tags', help='Общие теги для всех документов (через запятую)')
 @click.option('--skip-errors', is_flag=True, help='Продолжить загрузку при ошибках в отдельных файлах')
 @click.option('--dry-run', is_flag=True, help='Показать список файлов без загрузки')
+@click.option('--show-text', is_flag=True, help='Показать извлеченный текст из документов')
 @click.pass_context
-def batch_upload(ctx, path, recursive, pattern, metadata, category, tags, skip_errors, dry_run):
-    """Загрузить несколько документов одновременно из папки или по списку файлов."""
+def batch_upload(ctx, path, recursive, pattern, metadata, category, tags, skip_errors, dry_run, show_text):
+    """Загрузить несколько документов одновременно из папки или по списку файлов.
+    
+    Поддерживаемые форматы: TXT, MD, DOCX, PDF, RTF
+    """
     cli_instance = ctx.obj['cli']
     
     try:
+        # Set show extracted text option in file processor
+        from ..utils.file_processor import file_processor
+        file_processor.show_extracted_text = show_text
+        
         # Parse common metadata
         metadata_dict = {}
         for item in metadata:
@@ -503,31 +540,48 @@ def query(ctx, session_id):
 @click.option('--session-id', '-s', help='ID сессии (создается автоматически если не указан)')
 @click.option('--reference-docs', '-r', help='ID эталонных документов через запятую (интерактивный выбор если не указано)')
 @click.option('--interactive', '-i', is_flag=True, help='Интерактивный режим выбора эталонных документов')
+@click.option('--show-text', is_flag=True, help='Показать извлеченный текст из проверяемого документа')
 @click.pass_context
-def check_document(ctx, document_path, session_id, reference_docs, interactive):
-    """Проверить документ на соответствие эталонным требованиям."""
+def check_document(ctx, document_path, session_id, reference_docs, interactive, show_text):
+    """Проверить документ на соответствие эталонным требованиям.
+    
+    Поддерживаемые форматы: TXT, MD, DOCX, PDF, RTF
+    """
     cli_instance = ctx.obj['cli']
     
     try:
+        # Set show extracted text option in file processor
+        from ..utils.file_processor import file_processor
+        file_processor.show_extracted_text = show_text
+        
         # Create or use existing session
         if session_id is None:
             session_id = cli_instance.session_manager.create_session()
             console.print(f"[blue]📝 Создана новая сессия: {session_id}")
         
-        # Read document content
-        document_path = Path(document_path)
-        if document_path.suffix.lower() == '.docx':
-            if DocxDocument is None:
-                console.print("[red]❌ Библиотека python-docx не установлена")
-                sys.exit(1)
-            doc = DocxDocument(document_path)
-            document_content = '\n'.join([paragraph.text for paragraph in doc.paragraphs if paragraph.text.strip()])
-        else:
-            with open(document_path, 'r', encoding='utf-8') as f:
-                document_content = f.read()
+        # Extract document content using file processor
+        document_path_obj = Path(document_path)
         
-        if not document_content.strip():
-            console.print("[red]❌ Документ пуст")
+        # Show file type info
+        file_type_desc = cli_instance.document_manager.get_file_type_description(document_path_obj)
+        console.print(f"[blue]📄 Тип файла: {file_type_desc}[/blue]")
+        
+        try:
+            document_content, file_metadata = file_processor.extract_text(document_path_obj)
+            
+            if not file_processor.validate_extracted_text(document_content):
+                console.print("[red]❌ Документ пуст или содержит недопустимый текст")
+                sys.exit(1)
+                
+            # Show extraction metadata
+            console.print(f"[dim]📊 Извлечено символов: {file_metadata.get('character_count', 'N/A')}[/dim]")
+            if 'pages_count' in file_metadata:
+                console.print(f"[dim]📄 Страниц: {file_metadata['pages_count']}[/dim]")
+            if 'tables_count' in file_metadata:
+                console.print(f"[dim]📋 Таблиц: {file_metadata['tables_count']}[/dim]")
+                
+        except Exception as e:
+            console.print(f"[red]❌ Ошибка извлечения текста: {e}")
             sys.exit(1)
         
         # Get reference document IDs
@@ -704,6 +758,44 @@ def manage_doc(ctx, document_id, category, tags, add_tag, remove_tag):
     except DocumentManagerError as e:
         console.print(f"[red]❌ Ошибка управления документом: {e}")
         sys.exit(1)
+
+
+@cli.command()
+@click.pass_context
+def formats(ctx):
+    """Показать поддерживаемые форматы файлов."""
+    cli_instance = ctx.obj['cli']
+    
+    try:
+        supported_extensions = cli_instance.document_manager.get_supported_file_types()
+        
+        table = Table(title="Поддерживаемые форматы файлов")
+        table.add_column("Расширение", style="cyan")
+        table.add_column("Описание", style="white")
+        table.add_column("Возможности", style="green")
+        
+        format_info = {
+            '.txt': ('Plain Text', 'Базовое извлечение текста'),
+            '.md': ('Markdown', 'Извлечение текста с подсчетом элементов'),
+            '.docx': ('Microsoft Word', 'Текст, таблицы, метаданные документа'),
+            '.pdf': ('PDF Document', 'Текст по страницам, метаданные'),
+            '.rtf': ('Rich Text Format', 'Извлечение форматированного текста')
+        }
+        
+        for ext in supported_extensions:
+            desc, features = format_info.get(ext, ('Unknown', 'Basic text extraction'))
+            table.add_row(ext.upper(), desc, features)
+        
+        console.print(table)
+        
+        console.print("\n[yellow]💡 Советы по использованию:[/yellow]")
+        console.print("• Используйте --show-text для просмотра извлеченного текста")
+        console.print("• PDF файлы: лучше всего работают с текстовыми PDF")
+        console.print("• DOCX файлы: поддерживается извлечение таблиц и метаданных")
+        console.print("• RTF файлы: автоматическое удаление форматирования")
+        
+    except Exception as e:
+        console.print(f"[red]❌ Ошибка получения информации о форматах: {e}")
 
 
 @cli.command()
