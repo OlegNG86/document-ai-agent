@@ -11,6 +11,10 @@ from .ollama_client import OllamaClient, OllamaConnectionError
 from .document_manager import DocumentManager, DocumentManagerError
 from ..models.document import DocumentCategory
 from .session_manager import SessionManager, SessionManagerError
+from ..utils.decision_tree import (
+    DecisionTreeBuilder, DecisionTreeVisualizer, QueryType, DetailLevel,
+    get_decision_tree_settings
+)
 
 
 logger = logging.getLogger(__name__)
@@ -28,7 +32,8 @@ class QueryProcessor:
         self,
         document_manager: DocumentManager,
         session_manager: SessionManager,
-        ollama_client: Optional[OllamaClient] = None
+        ollama_client: Optional[OllamaClient] = None,
+        show_decision_tree: Optional[bool] = None
     ):
         """Initialize query processor.
         
@@ -36,10 +41,20 @@ class QueryProcessor:
             document_manager: Document manager instance.
             session_manager: Session manager instance.
             ollama_client: Ollama client instance. If None, creates new one.
+            show_decision_tree: Whether to show decision trees. If None, uses environment setting.
         """
         self.document_manager = document_manager
         self.session_manager = session_manager
         self.ollama_client = ollama_client or OllamaClient()
+        
+        # Decision tree components
+        self.tree_builder = DecisionTreeBuilder()
+        self.tree_visualizer = DecisionTreeVisualizer()
+        
+        # Decision tree settings
+        self.decision_tree_settings = get_decision_tree_settings()
+        if show_decision_tree is not None:
+            self.decision_tree_settings['enabled'] = show_decision_tree
         
         # Default prompts
         self.system_prompt = """Вы - AI помощник для работы с нормативной документацией по закупкам.
@@ -96,6 +111,15 @@ class QueryProcessor:
             # Calculate processing time
             processing_time = time.time() - start_time
             
+            # Generate decision tree if enabled
+            decision_tree_output = ""
+            if self.decision_tree_settings['enabled']:
+                decision_tree_output = self._generate_decision_tree_for_query(
+                    query=query,
+                    has_context=bool(relevant_chunks),
+                    query_type=QueryType.GENERAL_QUESTION
+                )
+            
             # Create response object
             response_id = str(uuid.uuid4())
             response = QueryResponse(
@@ -105,6 +129,10 @@ class QueryProcessor:
                 session_id=session_id,
                 processing_time=processing_time
             )
+            
+            # Add decision tree to response if available
+            if decision_tree_output:
+                response.response = f"{response_text}\n\n{decision_tree_output}"
             
             # Add relevant document IDs
             for chunk in relevant_chunks:
@@ -210,6 +238,15 @@ class QueryProcessor:
             # Calculate processing time
             processing_time = time.time() - start_time
             
+            # Generate decision tree if enabled
+            decision_tree_output = ""
+            if self.decision_tree_settings['enabled']:
+                decision_tree_output = self._generate_decision_tree_for_query(
+                    query="Проверка документа на соответствие",
+                    has_context=bool(relevant_chunks),
+                    query_type=QueryType.COMPLIANCE_CHECK
+                )
+            
             # Create response object
             response_id = str(uuid.uuid4())
             response = QueryResponse(
@@ -219,6 +256,10 @@ class QueryProcessor:
                 session_id=session_id,
                 processing_time=processing_time
             )
+            
+            # Add decision tree to response if available
+            if decision_tree_output:
+                response.response = f"{response_text}\n\n{decision_tree_output}"
             
             # Add relevant normative document IDs
             for chunk in relevant_chunks:
@@ -419,6 +460,61 @@ class QueryProcessor:
         
         return "\n".join(prompt_parts)
     
+    def _generate_decision_tree_for_query(
+        self,
+        query: str,
+        has_context: bool,
+        query_type: QueryType
+    ) -> str:
+        """Generate decision tree visualization for a query.
+        
+        Args:
+            query: The user query.
+            has_context: Whether relevant context was found.
+            query_type: Type of the query.
+            
+        Returns:
+            Decision tree visualization string.
+        """
+        try:
+            # Build appropriate decision tree based on query type
+            if query_type == QueryType.COMPLIANCE_CHECK:
+                tree = self.tree_builder.build_compliance_check_tree(has_context)
+            else:
+                tree = self.tree_builder.build_general_query_tree(query, has_context)
+            
+            # Visualize the tree
+            tree_output = self.tree_visualizer.visualize_tree(
+                tree=tree,
+                detail_level=self.decision_tree_settings['detail_level'],
+                max_width=self.decision_tree_settings['max_width']
+            )
+            
+            # Add header
+            header = "\n" + "="*50 + "\n🌳 АНАЛИЗ ПРОЦЕССА ПРИНЯТИЯ РЕШЕНИЙ\n" + "="*50
+            
+            return f"{header}\n{tree_output}"
+            
+        except Exception as e:
+            logger.warning(f"Failed to generate decision tree: {e}")
+            return ""
+    
+    def set_decision_tree_enabled(self, enabled: bool) -> None:
+        """Enable or disable decision tree visualization.
+        
+        Args:
+            enabled: Whether to enable decision trees.
+        """
+        self.decision_tree_settings['enabled'] = enabled
+    
+    def set_decision_tree_detail_level(self, detail_level: DetailLevel) -> None:
+        """Set decision tree detail level.
+        
+        Args:
+            detail_level: Detail level to use.
+        """
+        self.decision_tree_settings['detail_level'] = detail_level
+    
     def get_query_statistics(self) -> Dict[str, Any]:
         """Get query processing statistics.
         
@@ -430,5 +526,6 @@ class QueryProcessor:
         return {
             'total_queries_processed': 0,
             'average_processing_time': 0.0,
-            'document_checks_performed': 0
+            'document_checks_performed': 0,
+            'decision_tree_enabled': self.decision_tree_settings['enabled']
         }

@@ -464,8 +464,9 @@ def batch_upload(ctx, path, recursive, pattern, metadata, category, tags, skip_e
 
 @cli.command()
 @click.option('--session-id', '-s', help='ID сессии (создается автоматически если не указан)')
+@click.option('--show-decision-tree', is_flag=True, help='Показать дерево решений для анализа процесса ответа')
 @click.pass_context
-def query(ctx, session_id):
+def query(ctx, session_id, show_decision_tree):
     """Задать вопрос AI агенту."""
     cli_instance = ctx.obj['cli']
     
@@ -475,6 +476,10 @@ def query(ctx, session_id):
         console.print(f"[blue]📝 Создана новая сессия: {session_id}")
     
     cli_instance.current_session_id = session_id
+    
+    # Set decision tree option
+    if show_decision_tree:
+        cli_instance.query_processor.set_decision_tree_enabled(True)
     
     try:
         # Interactive query loop
@@ -541,8 +546,9 @@ def query(ctx, session_id):
 @click.option('--reference-docs', '-r', help='ID эталонных документов через запятую (интерактивный выбор если не указано)')
 @click.option('--interactive', '-i', is_flag=True, help='Интерактивный режим выбора эталонных документов')
 @click.option('--show-text', is_flag=True, help='Показать извлеченный текст из проверяемого документа')
+@click.option('--show-decision-tree', is_flag=True, help='Показать дерево решений для анализа процесса проверки')
 @click.pass_context
-def check_document(ctx, document_path, session_id, reference_docs, interactive, show_text):
+def check_document(ctx, document_path, session_id, reference_docs, interactive, show_text, show_decision_tree):
     """Проверить документ на соответствие эталонным требованиям.
     
     Поддерживаемые форматы: TXT, MD, DOCX, PDF, RTF
@@ -558,6 +564,10 @@ def check_document(ctx, document_path, session_id, reference_docs, interactive, 
         if session_id is None:
             session_id = cli_instance.session_manager.create_session()
             console.print(f"[blue]📝 Создана новая сессия: {session_id}")
+        
+        # Set decision tree option
+        if show_decision_tree:
+            cli_instance.query_processor.set_decision_tree_enabled(True)
         
         # Extract document content using file processor
         document_path_obj = Path(document_path)
@@ -1080,6 +1090,13 @@ def _show_help():
 • "Какие требования к документации по закупкам?"
 • "Что нужно указать в договоре с поставщиком?"
 • "Какие документы нужны для участия в тендере?"
+
+[bold]Анализ процесса принятия решений:[/bold]
+
+• Используйте [cyan]--show-decision-tree[/cyan] для визуализации дерева решений
+• Переменная окружения [cyan]SHOW_DECISION_TREE=true[/cyan] для глобального включения
+• Переменная [cyan]DECISION_TREE_DETAIL[/cyan] для уровня детализации (brief/full/extended)
+• Дерево решений показывает логику обработки запросов и вероятности выбора путей
 """
     console.print(Panel(help_text, title="Справка"))
 
