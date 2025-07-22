@@ -35,13 +35,14 @@ class DecisionTreeExporter:
         
         logger.info(f"Инициализирован экспортер деревьев решений. Путь экспорта: {self.export_path}")
     
-    def convert_tree_to_json(self, tree: Any, query_type: str) -> Dict[str, Any]:
+    def convert_tree_to_json(self, tree: Any, query_type: str, query_text: str = None) -> Dict[str, Any]:
         """
         Конвертирует дерево решений в JSON формат для визуализации.
         
         Args:
             tree: Объект дерева решений.
             query_type: Тип запроса (например, 'general_question', 'compliance_check').
+            query_text: Текст запроса пользователя для уникальности.
             
         Returns:
             Dict[str, Any]: JSON-совместимый словарь с данными дерева.
@@ -51,6 +52,11 @@ class DecisionTreeExporter:
         
         # Получаем корневой узел и статистику
         root_node = self._convert_node(tree.root) if hasattr(tree, 'root') else {}
+        
+        # Добавляем информацию о запросе в корневой узел для уникальности
+        if root_node and query_text:
+            root_node['query_text'] = query_text
+            root_node['description'] = f"{root_node.get('description', '')} | Запрос: {query_text[:100]}..."
         
         # Собираем статистику
         stats = {
@@ -65,6 +71,7 @@ class DecisionTreeExporter:
             'id': tree_id,
             'query_type': query_type,
             'timestamp': timestamp,
+            'query_text': query_text or '',
             'root': root_node,
             'statistics': stats
         }
@@ -102,24 +109,26 @@ class DecisionTreeExporter:
         
         return node_json
     
-    def export_tree(self, tree: Any, query_type: str) -> Optional[str]:
+    def export_tree(self, tree: Any, query_type: str, query_text: str = None) -> Optional[str]:
         """
         Экспортирует дерево решений в JSON файл.
         
         Args:
             tree: Объект дерева решений.
             query_type: Тип запроса.
+            query_text: Текст запроса пользователя для уникальности.
             
         Returns:
             Optional[str]: Путь к сохраненному файлу или None в случае ошибки.
         """
         try:
             # Конвертируем дерево в JSON
-            tree_json = self.convert_tree_to_json(tree, query_type)
+            tree_json = self.convert_tree_to_json(tree, query_type, query_text)
             
-            # Генерируем имя файла
+            # Генерируем имя файла с дополнительной уникальностью
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            filename = f"{query_type}_{timestamp}_{tree_json['id'][:8]}.json"
+            microseconds = datetime.now().microsecond
+            filename = f"{query_type}_{timestamp}_{microseconds}_{tree_json['id'][:8]}.json"
             filepath = os.path.join(self.export_path, filename)
             
             # Сохраняем в файл

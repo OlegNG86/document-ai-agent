@@ -215,18 +215,23 @@ class DecisionTreeBuilder:
         Returns:
             Decision tree for the query.
         """
-        tree = self.create_tree(QueryType.GENERAL_QUESTION, "Обработка запроса")
+        # Создаем уникальное описание корневого узла с информацией о запросе
+        query_preview = query[:50] + "..." if len(query) > 50 else query
+        tree = self.create_tree(QueryType.GENERAL_QUESTION, f"Обработка запроса: {query_preview}")
+        
+        # Обновляем описание корневого узла
+        tree.root.description = f"Анализ запроса пользователя: '{query}'"
         
         # First level: Context availability
         if context_available:
             self.add_decision_branch(tree, [], [
-                ("Найден релевантный контекст", 0.8, "Найдены документы, релевантные запросу"),
-                ("Контекст частично релевантен", 0.15, "Найдены частично релевантные документы"),
-                ("Контекст не найден", 0.05, "Релевантные документы не найдены")
+                ("Найден релевантный контекст", 0.8, f"Найдены документы, релевантные запросу: '{query_preview}'"),
+                ("Контекст частично релевантен", 0.15, f"Найдены частично релевантные документы для: '{query_preview}'"),
+                ("Контекст не найден", 0.05, f"Релевантные документы не найдены для: '{query_preview}'")
             ])
         else:
             self.add_decision_branch(tree, [], [
-                ("Контекст не найден", 1.0, "Релевантные документы не найдены")
+                ("Контекст не найден", 1.0, f"Релевантные документы не найдены для запроса: '{query_preview}'")
             ])
         
         # Second level: Response generation
@@ -253,26 +258,32 @@ class DecisionTreeBuilder:
         
         return tree
     
-    def build_compliance_check_tree(self, has_reference_docs: bool = True) -> DecisionTree:
+    def build_compliance_check_tree(self, has_reference_docs: bool = True, query_context: str = "") -> DecisionTree:
         """Build decision tree for compliance checking.
         
         Args:
             has_reference_docs: Whether reference documents are available.
+            query_context: Additional context about the compliance check query.
             
         Returns:
             Decision tree for compliance check.
         """
-        tree = self.create_tree(QueryType.COMPLIANCE_CHECK, "Проверка соответствия")
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        tree = self.create_tree(QueryType.COMPLIANCE_CHECK, f"Проверка соответствия ({timestamp})")
+        
+        # Добавляем контекст в описание корневого узла
+        context_info = f" | Контекст: {query_context}" if query_context else ""
+        tree.root.description = f"Анализ соответствия документа нормативным требованиям{context_info}"
         
         # First level: Reference documents availability
         if has_reference_docs:
             self.add_decision_branch(tree, [], [
-                ("Эталонные документы найдены", 0.9, "Найдены нормативные документы для проверки"),
-                ("Частичная база нормативов", 0.1, "Найдена только часть необходимых нормативов")
+                ("Эталонные документы найдены", 0.9, f"Найдены нормативные документы для проверки{context_info}"),
+                ("Частичная база нормативов", 0.1, f"Найдена только часть необходимых нормативов{context_info}")
             ])
         else:
             self.add_decision_branch(tree, [], [
-                ("Нормативы отсутствуют", 1.0, "Нормативные документы не найдены")
+                ("Нормативы отсутствуют", 1.0, f"Нормативные документы не найдены{context_info}")
             ])
         
         # Second level: Analysis type

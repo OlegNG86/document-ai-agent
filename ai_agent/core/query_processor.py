@@ -488,7 +488,7 @@ class QueryProcessor:
         try:
             # Build appropriate decision tree based on query type
             if query_type == QueryType.COMPLIANCE_CHECK:
-                tree = self.tree_builder.build_compliance_check_tree(has_context)
+                tree = self.tree_builder.build_compliance_check_tree(has_context, query)
             else:
                 tree = self.tree_builder.build_general_query_tree(query, has_context)
             
@@ -496,7 +496,7 @@ class QueryProcessor:
             visualization_url = ""
             if self.web_visualization:
                 try:
-                    tree_path = self.tree_exporter.export_tree(tree, query_type.value)
+                    tree_path = self.tree_exporter.export_tree(tree, query_type.value, query)
                     if tree_path:
                         visualization_url = self.tree_exporter.get_visualization_url(tree_path)
                 except Exception as e:
