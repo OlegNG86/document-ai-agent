@@ -21,14 +21,19 @@ RUN pip install --no-cache-dir \
     matplotlib==3.7.1 \
     plotly==5.14.1 \
     pygraphviz==1.10 \
-    pillow==9.5.0 \
-    pydeck==0.8.0
+    pillow==9.5.0
 
-# Копирование кода приложения
-COPY . .
-
-# Создание тестовых данных
+# Создание минимального приложения
 RUN mkdir -p /app/data/decision_trees
+
+# Создание минимального приложения Streamlit
+RUN echo 'import streamlit as st\n\
+st.set_page_config(page_title="Визуализация деревьев решений", layout="wide")\n\
+st.title("Визуализация деревьев решений AI агента")\n\
+st.write("Сервис успешно запущен!")\n\
+st.success("Если вы видите это сообщение, значит сервер Streamlit работает корректно.")\n\
+st.info("Для визуализации деревьев решений необходимо добавить файлы JSON в директорию /app/data/decision_trees/")\n\
+' > /app/app.py
 
 # Открытие порта для Streamlit
 EXPOSE 8501
