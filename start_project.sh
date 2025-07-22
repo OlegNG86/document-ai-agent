@@ -35,8 +35,8 @@ if [ "$(docker ps -a -q -f name=ai-agent-visualization)" ]; then
     docker rm -f ai-agent-visualization
 fi
 
-# Запуск всех сервисов
-docker-compose up -d
+# Запуск всех сервисов с пересборкой
+docker-compose up -d --build
 
 # Проверка статуса
 echo -e "${YELLOW}Проверка статуса контейнеров...${NC}"

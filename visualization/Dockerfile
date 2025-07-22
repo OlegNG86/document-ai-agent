@@ -12,7 +12,15 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-# Копирование и установка зависимостей
+# Обновление pip и установка совместимых версий библиотек
+RUN pip install --upgrade pip
+
+# Установка numpy и pandas в правильном порядке
+RUN pip install --no-cache-dir \
+    numpy==1.23.5 \
+    pandas==1.5.3
+
+# Копирование и установка остальных зависимостей
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
