@@ -494,13 +494,20 @@ class QueryProcessor:
             
             # Export tree for web visualization if enabled
             visualization_url = ""
+            logger.info(f"Web visualization enabled: {self.web_visualization}")
             if self.web_visualization:
                 try:
+                    logger.info(f"Attempting to export decision tree for query type: {query_type.value}")
                     tree_path = self.tree_exporter.export_tree(tree, query_type.value, query)
                     if tree_path:
+                        logger.info(f"Decision tree exported successfully to: {tree_path}")
                         visualization_url = self.tree_exporter.get_visualization_url(tree_path)
+                    else:
+                        logger.warning("Decision tree export returned None")
                 except Exception as e:
-                    logger.warning(f"Failed to export decision tree: {e}")
+                    logger.error(f"Failed to export decision tree: {e}")
+                    import traceback
+                    logger.error(f"Traceback: {traceback.format_exc()}")
             
             # Visualize the tree
             tree_output = self.tree_visualizer.visualize_tree(
