@@ -30,7 +30,7 @@
 
 2. **Проверьте доступность сервисов**:
    - ChromaDB: http://localhost:8000
-   - Визуализация деревьев решений: http://10.50.50.10:8501
+   - Визуализация деревьев решений: http://localhost:8501
 
 ## Использование AI агента
 
@@ -109,7 +109,7 @@ docker-compose down
 
    ```bash
    # Проверка доступности сервиса
-   curl -I http://10.50.50.10:8501
+   curl -I http://localhost:8501
 
    # Проверка наличия файлов деревьев решений
    docker-compose exec decision-tree-viz ls -la /app/data/decision_trees

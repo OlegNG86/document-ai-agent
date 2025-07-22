@@ -44,7 +44,7 @@ docker-compose ps
 
 echo -e "\n${GREEN}=== Проект запущен ===${NC}"
 echo -e "ChromaDB доступен по адресу: ${BLUE}http://localhost:8000${NC}"
-echo -e "Визуализация деревьев решений доступна по адресу: ${BLUE}http://10.50.50.10:8501${NC}"
+echo -e "Визуализация деревьев решений доступна по адресу: ${BLUE}http://localhost:8501${NC}"
 echo -e "\nДля использования AI агента выполните:"
 echo -e "${YELLOW}docker-compose exec ai-agent poetry run python -m ai_agent.main query${NC}"
 echo -e "\nДля проверки документа с визуализацией:"
