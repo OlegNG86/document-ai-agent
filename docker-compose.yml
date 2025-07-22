@@ -36,7 +36,7 @@ services:
       - CHROMA_PATH=/app/data/chroma_db
       - SUPPORTED_FILE_TYPES=${SUPPORTED_FILE_TYPES:-.txt,.md,.docx}
       - VISUALIZATION_ENABLED=${VISUALIZATION_ENABLED:-true}
-      - VISUALIZATION_URL=http://localhost:8501
+      - VISUALIZATION_URL=http://10.50.50.10:8501
       - DECISION_TREE_EXPORT_PATH=/app/visualization/data/decision_trees
     depends_on:
       - chromadb
@@ -50,7 +50,7 @@ services:
   decision-tree-viz:
     build:
       context: ./visualization
-      dockerfile: Dockerfile.fixed
+      dockerfile: Dockerfile
     container_name: ai-agent-visualization
     ports:
       - "0.0.0.0:8501:8501"
