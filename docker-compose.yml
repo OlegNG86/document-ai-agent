@@ -50,14 +50,16 @@ services:
   decision-tree-viz:
     build:
       context: ./visualization
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.fixed
     container_name: ai-agent-visualization
     ports:
-      - "8501:8501"
+      - "0.0.0.0:8501:8501"
     volumes:
       - ./visualization/data:/app/data
     environment:
       - DECISION_TREE_DATA_PATH=/app/data/decision_trees
+      - STREAMLIT_SERVER_ADDRESS=0.0.0.0
+      - STREAMLIT_SERVER_PORT=8501
     restart: unless-stopped
     depends_on:
       - ai-agent
