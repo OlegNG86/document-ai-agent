@@ -30,6 +30,354 @@
 └─────────────────┘    └──────────────────┘    └─────────────────┘
 ```
 
+## Развертывание на Ubuntu сервере
+
+### Полная инструкция по установке на Ubuntu Server
+
+#### Системные требования
+
+- **ОС**: Ubuntu 20.04 LTS или новее
+- **RAM**: Минимум 8 GB (рекомендуется 16 GB для больших моделей)
+- **Диск**: Минимум 50 GB свободного места
+- **CPU**: 4+ ядра (рекомендуется)
+- **GPU**: Опционально (NVIDIA с поддержкой CUDA для ускорения)
+
+#### Шаг 1: Подготовка системы
+
+```bash
+# Обновление системы
+sudo apt update && sudo apt upgrade -y
+
+# Установка необходимых пакетов
+sudo apt install -y curl wget git build-essential software-properties-common
+
+# Установка Python 3.9+ (если не установлен)
+sudo apt install -y python3 python3-pip python3-venv
+
+# Проверка версии Python
+python3 --version
+```
+
+#### Шаг 2: Установка Docker и Docker Compose
+
+```bash
+# Установка Docker
+curl -fsSL https://get.docker.com -o get-docker.sh
+sudo sh get-docker.sh
+
+# Добавление пользователя в группу docker
+sudo usermod -aG docker $USER
+
+# Установка Docker Compose
+sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+sudo chmod +x /usr/local/bin/docker-compose
+
+# Перезагрузка для применения изменений группы
+sudo reboot
+```
+
+#### Шаг 3: Клонирование проекта
+
+```bash
+# Клонирование репозитория
+git clone https://github.com/your-username/document-ai-agent.git
+cd document-ai-agent
+
+# Проверка содержимого
+ls -la
+```
+
+#### Шаг 4: Настройка окружения
+
+```bash
+# Создание файла окружения
+cp .env.example .env
+
+# Редактирование конфигурации (используйте nano или vim)
+nano .env
+```
+
+**Пример конфигурации для сервера (.env):**
+
+```bash
+# Основные настройки
+OLLAMA_HOST=http://ollama:11434
+OLLAMA_DEFAULT_MODEL=llama3.1
+DATA_PATH=/app/data
+CHROMA_PATH=/app/data/chroma_db
+SESSION_TIMEOUT_HOURS=24
+
+# Настройки логирования для продакшн
+LOG_LEVEL=INFO
+LOG_DIR=/app/logs
+ENABLE_FILE_LOGGING=true
+ENABLE_JSON_LOGGING=true
+MAX_LOG_SIZE_MB=50
+LOG_BACKUP_COUNT=30
+
+# Настройки производительности
+SLOW_OPERATION_THRESHOLD=10.0
+MEMORY_USAGE_THRESHOLD=1000
+ENABLE_PERFORMANCE_MONITOR=true
+
+# Настройки дерева решений
+SHOW_DECISION_TREE=false
+DECISION_TREE_DETAIL=brief
+DECISION_TREE_COLORS=false
+```
+
+#### Шаг 5: Запуск системы
+
+```bash
+# Запуск в фоновом режиме
+docker-compose up -d
+
+# Просмотр логов запуска
+docker-compose logs -f
+
+# Проверка статуса контейнеров
+docker-compose ps
+```
+
+#### Шаг 6: Ожидание загрузки моделей
+
+```bash
+# Мониторинг загрузки моделей (может занять 10-30 минут)
+docker-compose logs -f model-init
+
+# Проверка доступности Ollama
+curl http://localhost:11434/api/tags
+
+# Проверка статуса системы
+docker-compose exec ai-agent poetry run python -m ai_agent.main status
+```
+
+#### Шаг 7: Первый запуск и тестирование
+
+```bash
+# Интерактивный режим
+docker-compose exec ai-agent poetry run python -m ai_agent.main query
+
+# Загрузка тестового документа
+echo "Тестовый документ для проверки системы" > test.txt
+docker-compose exec ai-agent poetry run python -m ai_agent.main upload /app/test.txt
+
+# Проверка списка документов
+docker-compose exec ai-agent poetry run python -m ai_agent.main docs --list
+```
+
+### Настройка для продакшн среды
+
+#### Настройка systemd сервиса
+
+```bash
+# Создание systemd сервиса
+sudo nano /etc/systemd/system/document-ai-agent.service
+```
+
+**Содержимое файла сервиса:**
+
+```ini
+[Unit]
+Description=Document AI Agent
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/document-ai-agent
+ExecStart=/usr/local/bin/docker-compose up -d
+ExecStop=/usr/local/bin/docker-compose down
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+# Перемещение проекта в системную директорию
+sudo mv document-ai-agent /opt/
+sudo chown -R $USER:$USER /opt/document-ai-agent
+
+# Активация сервиса
+sudo systemctl daemon-reload
+sudo systemctl enable document-ai-agent
+sudo systemctl start document-ai-agent
+
+# Проверка статуса
+sudo systemctl status document-ai-agent
+```
+
+#### Настройка Nginx (опционально)
+
+```bash
+# Установка Nginx
+sudo apt install -y nginx
+
+# Создание конфигурации
+sudo nano /etc/nginx/sites-available/document-ai-agent
+```
+
+**Конфигурация Nginx:**
+
+```nginx
+server {
+    listen 80;
+    server_name your-domain.com;
+
+    location / {
+        proxy_pass http://localhost:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+```bash
+# Активация конфигурации
+sudo ln -s /etc/nginx/sites-available/document-ai-agent /etc/nginx/sites-enabled/
+sudo nginx -t
+sudo systemctl restart nginx
+```
+
+#### Настройка файрвола
+
+```bash
+# Настройка UFW
+sudo ufw allow ssh
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+sudo ufw --force enable
+
+# Проверка статуса
+sudo ufw status
+```
+
+### Мониторинг и обслуживание
+
+#### Просмотр логов
+
+```bash
+# Логи всех сервисов
+docker-compose logs -f
+
+# Логи конкретного сервиса
+docker-compose logs -f ai-agent
+docker-compose logs -f ollama
+
+# Логи системы
+sudo journalctl -u document-ai-agent -f
+```
+
+#### Обновление системы
+
+```bash
+# Переход в директорию проекта
+cd /opt/document-ai-agent
+
+# Получение обновлений
+git pull origin main
+
+# Пересборка и перезапуск
+docker-compose down
+docker-compose build --no-cache
+docker-compose up -d
+
+# Проверка статуса
+docker-compose ps
+```
+
+#### Резервное копирование
+
+```bash
+# Создание скрипта резервного копирования
+sudo nano /usr/local/bin/backup-ai-agent.sh
+```
+
+**Скрипт резервного копирования:**
+
+```bash
+#!/bin/bash
+BACKUP_DIR="/backup/document-ai-agent"
+DATE=$(date +%Y%m%d_%H%M%S)
+
+# Создание директории для бэкапов
+mkdir -p $BACKUP_DIR
+
+# Остановка сервисов
+cd /opt/document-ai-agent
+docker-compose stop
+
+# Архивирование данных
+tar -czf $BACKUP_DIR/data_$DATE.tar.gz data/
+tar -czf $BACKUP_DIR/logs_$DATE.tar.gz logs/
+
+# Запуск сервисов
+docker-compose start
+
+# Удаление старых бэкапов (старше 30 дней)
+find $BACKUP_DIR -name "*.tar.gz" -mtime +30 -delete
+
+echo "Backup completed: $DATE"
+```
+
+```bash
+# Настройка прав и cron
+sudo chmod +x /usr/local/bin/backup-ai-agent.sh
+sudo crontab -e
+
+# Добавить строку для ежедневного бэкапа в 2:00
+0 2 * * * /usr/local/bin/backup-ai-agent.sh >> /var/log/ai-agent-backup.log 2>&1
+```
+
+### Устранение неполадок на сервере
+
+#### Проверка ресурсов
+
+```bash
+# Использование памяти и CPU
+htop
+docker stats
+
+# Использование диска
+df -h
+du -sh /opt/document-ai-agent/data/
+
+# Проверка сетевых подключений
+netstat -tlnp | grep :11434
+```
+
+#### Очистка системы
+
+```bash
+# Очистка Docker
+docker system prune -a
+
+# Очистка логов
+sudo journalctl --vacuum-time=7d
+
+# Очистка старых данных (осторожно!)
+# docker-compose exec ai-agent rm -rf /app/data/chroma_db
+```
+
+#### Перезапуск сервисов
+
+```bash
+# Полный перезапуск
+sudo systemctl restart document-ai-agent
+
+# Или через docker-compose
+cd /opt/document-ai-agent
+docker-compose restart
+
+# Перезапуск отдельного сервиса
+docker-compose restart ai-agent
+docker-compose restart ollama
+```
+
 ## Быстрый старт
 
 ### Способ 1: Docker Compose (Рекомендуемый)
@@ -714,6 +1062,29 @@ $ docai check-document contract.txt --interactive
 - 📈 **Различные уровни детализации** - краткий, полный и расширенный режимы
 - 🔍 **Анализ путей решений** - детальный анализ выбранных путей
 - ⚙️ **Гибкая настройка** - управление через CLI опции и переменные окружения
+
+### Веб-интерфейс визуализации
+
+Система также предоставляет интерактивный веб-интерфейс для визуализации деревьев решений:
+
+- 🖥️ **Интерактивные графы** - масштабирование, перемещение, подробная информация при наведении
+- 📊 **Анализ путей** - таблица всех возможных путей с вероятностями
+- 📁 **Экспорт** - сохранение визуализаций в PNG, SVG, PDF форматах
+- 🔍 **Фильтрация** - выбор деревьев по типу запроса и времени создания
+
+#### Доступ к веб-интерфейсу
+
+```bash
+# Запуск с включенной визуализацией
+docai query --web-visualization
+
+# Проверка документа с визуализацией
+docai check-document contract.txt --web-visualization
+```
+
+После выполнения команды с флагом `--web-visualization` система выведет ссылку на веб-интерфейс, где можно будет просмотреть интерактивную визуализацию дерева решений.
+
+Веб-интерфейс доступен по адресу: http://localhost:8501
 
 ### Использование дерева решений
 

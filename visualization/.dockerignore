@@ -1,0 +1,38 @@
+# Игнорируем ненужные файлы при сборке Docker образа
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Виртуальное окружение
+venv/
+ENV/
+
+# Файлы IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Локальные данные
+.DS_Store
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local

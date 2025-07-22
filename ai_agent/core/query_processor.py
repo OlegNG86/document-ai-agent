@@ -3,6 +3,7 @@
 import uuid
 import logging
 import time
+import os
 from typing import List, Dict, Any, Optional
 
 from ..models.query_response import QueryResponse
@@ -15,6 +16,7 @@ from ..utils.decision_tree import (
     DecisionTreeBuilder, DecisionTreeVisualizer, QueryType, DetailLevel,
     get_decision_tree_settings
 )
+from ..utils.tree_exporter import DecisionTreeExporter
 
 
 logger = logging.getLogger(__name__)
@@ -33,7 +35,8 @@ class QueryProcessor:
         document_manager: DocumentManager,
         session_manager: SessionManager,
         ollama_client: Optional[OllamaClient] = None,
-        show_decision_tree: Optional[bool] = None
+        show_decision_tree: Optional[bool] = None,
+        web_visualization: Optional[bool] = None
     ):
         """Initialize query processor.
         
@@ -42,6 +45,7 @@ class QueryProcessor:
             session_manager: Session manager instance.
             ollama_client: Ollama client instance. If None, creates new one.
             show_decision_tree: Whether to show decision trees. If None, uses environment setting.
+            web_visualization: Whether to enable web visualization. If None, uses environment setting.
         """
         self.document_manager = document_manager
         self.session_manager = session_manager
@@ -50,11 +54,16 @@ class QueryProcessor:
         # Decision tree components
         self.tree_builder = DecisionTreeBuilder()
         self.tree_visualizer = DecisionTreeVisualizer()
+        self.tree_exporter = DecisionTreeExporter()
         
         # Decision tree settings
         self.decision_tree_settings = get_decision_tree_settings()
         if show_decision_tree is not None:
             self.decision_tree_settings['enabled'] = show_decision_tree
+            
+        # Web visualization settings
+        self.web_visualization = web_visualization if web_visualization is not None else \
+            os.environ.get('VISUALIZATION_ENABLED', 'false').lower() in ['true', '1', 'yes']
         
         # Default prompts
         self.system_prompt = """Вы - AI помощник для работы с нормативной документацией по закупкам.
@@ -483,6 +492,16 @@ class QueryProcessor:
             else:
                 tree = self.tree_builder.build_general_query_tree(query, has_context)
             
+            # Export tree for web visualization if enabled
+            visualization_url = ""
+            if self.web_visualization:
+                try:
+                    tree_path = self.tree_exporter.export_tree(tree, query_type.value)
+                    if tree_path:
+                        visualization_url = self.tree_exporter.get_visualization_url(tree_path)
+                except Exception as e:
+                    logger.warning(f"Failed to export decision tree: {e}")
+            
             # Visualize the tree
             tree_output = self.tree_visualizer.visualize_tree(
                 tree=tree,
@@ -493,7 +512,12 @@ class QueryProcessor:
             # Add header
             header = "\n" + "="*50 + "\n🌳 АНАЛИЗ ПРОЦЕССА ПРИНЯТИЯ РЕШЕНИЙ\n" + "="*50
             
-            return f"{header}\n{tree_output}"
+            # Add visualization URL if available
+            if visualization_url:
+                web_viz_info = f"\n\n🔗 Интерактивная визуализация доступна по адресу: {visualization_url}"
+                return f"{header}\n{tree_output}{web_viz_info}"
+            else:
+                return f"{header}\n{tree_output}"
             
         except Exception as e:
             logger.warning(f"Failed to generate decision tree: {e}")
@@ -515,6 +539,14 @@ class QueryProcessor:
         """
         self.decision_tree_settings['detail_level'] = detail_level
     
+    def set_web_visualization(self, enabled: bool) -> None:
+        """Enable or disable web visualization.
+        
+        Args:
+            enabled: Whether to enable web visualization.
+        """
+        self.web_visualization = enabled
+    
     def get_query_statistics(self) -> Dict[str, Any]:
         """Get query processing statistics.
         
@@ -527,5 +559,6 @@ class QueryProcessor:
             'total_queries_processed': 0,
             'average_processing_time': 0.0,
             'document_checks_performed': 0,
-            'decision_tree_enabled': self.decision_tree_settings['enabled']
+            'decision_tree_enabled': self.decision_tree_settings['enabled'],
+            'web_visualization_enabled': self.web_visualization
         }

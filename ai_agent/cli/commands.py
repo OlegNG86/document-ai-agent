@@ -465,8 +465,9 @@ def batch_upload(ctx, path, recursive, pattern, metadata, category, tags, skip_e
 @cli.command()
 @click.option('--session-id', '-s', help='ID сессии (создается автоматически если не указан)')
 @click.option('--show-decision-tree', is_flag=True, help='Показать дерево решений для анализа процесса ответа')
+@click.option('--web-visualization', '-w', is_flag=True, help='Включить веб-визуализацию дерева решений')
 @click.pass_context
-def query(ctx, session_id, show_decision_tree):
+def query(ctx, session_id, show_decision_tree, web_visualization):
     """Задать вопрос AI агенту."""
     cli_instance = ctx.obj['cli']
     
@@ -477,9 +478,13 @@ def query(ctx, session_id, show_decision_tree):
     
     cli_instance.current_session_id = session_id
     
-    # Set decision tree option
+    # Set decision tree and visualization options
     if show_decision_tree:
         cli_instance.query_processor.set_decision_tree_enabled(True)
+    
+    if web_visualization:
+        cli_instance.query_processor.set_web_visualization(True)
+        console.print(f"[blue]🌐 Веб-визуализация включена: {os.environ.get('VISUALIZATION_URL', 'http://localhost:8501')}")
     
     try:
         # Interactive query loop
@@ -506,6 +511,11 @@ def query(ctx, session_id, show_decision_tree):
                 continue
             elif user_input.lower() == '/check':
                 _document_check_mode(cli_instance, session_id)
+                continue
+            elif user_input.lower() == '/viz':
+                viz_url = os.environ.get('VISUALIZATION_URL', 'http://localhost:8501')
+                console.print(f"[blue]🌐 Открытие веб-визуализации: {viz_url}")
+                console.print("[yellow]Для просмотра деревьев решений откройте указанный URL в браузере")
                 continue
             elif not user_input.strip():
                 continue
@@ -547,8 +557,9 @@ def query(ctx, session_id, show_decision_tree):
 @click.option('--interactive', '-i', is_flag=True, help='Интерактивный режим выбора эталонных документов')
 @click.option('--show-text', is_flag=True, help='Показать извлеченный текст из проверяемого документа')
 @click.option('--show-decision-tree', is_flag=True, help='Показать дерево решений для анализа процесса проверки')
+@click.option('--web-visualization', '-w', is_flag=True, help='Включить веб-визуализацию дерева решений')
 @click.pass_context
-def check_document(ctx, document_path, session_id, reference_docs, interactive, show_text, show_decision_tree):
+def check_document(ctx, document_path, session_id, reference_docs, interactive, show_text, show_decision_tree, web_visualization):
     """Проверить документ на соответствие эталонным требованиям.
     
     Поддерживаемые форматы: TXT, MD, DOCX, PDF, RTF
@@ -565,9 +576,13 @@ def check_document(ctx, document_path, session_id, reference_docs, interactive, 
             session_id = cli_instance.session_manager.create_session()
             console.print(f"[blue]📝 Создана новая сессия: {session_id}")
         
-        # Set decision tree option
+        # Set decision tree and visualization options
         if show_decision_tree:
             cli_instance.query_processor.set_decision_tree_enabled(True)
+            
+        if web_visualization:
+            cli_instance.query_processor.set_web_visualization(True)
+            console.print(f"[blue]🌐 Веб-визуализация включена: {os.environ.get('VISUALIZATION_URL', 'http://localhost:8501')}")
         
         # Extract document content using file processor
         document_path_obj = Path(document_path)
@@ -1093,9 +1108,10 @@ def _show_help():
 
 [bold]Анализ процесса принятия решений:[/bold]
 
-• Используйте [cyan]--show-decision-tree[/cyan] для визуализации дерева решений
-• Переменная окружения [cyan]SHOW_DECISION_TREE=true[/cyan] для глобального включения
-• Переменная [cyan]DECISION_TREE_DETAIL[/cyan] для уровня детализации (brief/full/extended)
+• Используйте [cyan]--show-decision-tree[/cyan] для визуализации дерева решений в консоли
+• Используйте [cyan]--web-visualization[/cyan] для интерактивной веб-визуализации
+• Команда [cyan]/viz[/cyan] открывает веб-интерфейс визуализации
+• Переменная окружения [cyan]VISUALIZATION_ENABLED=true[/cyan] для глобального включения
 • Дерево решений показывает логику обработки запросов и вероятности выбора путей
 """
     console.print(Panel(help_text, title="Справка"))
