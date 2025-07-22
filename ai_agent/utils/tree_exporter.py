@@ -94,7 +94,7 @@ class DecisionTreeExporter:
         # Базовые атрибуты узла
         node_json = {
             'id': getattr(node, 'id', str(uuid.uuid4())),
-            'label': getattr(node, 'name', ''),
+            'label': getattr(node, 'label', ''),
             'description': getattr(node, 'description', ''),
             'probability': getattr(node, 'probability', 1.0),
         }
