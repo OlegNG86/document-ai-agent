@@ -24,7 +24,18 @@ chmod -R 777 visualization/data
 
 # Запуск всех сервисов
 echo -e "${YELLOW}Запуск всех сервисов...${NC}"
+
+# Остановка и удаление всех контейнеров проекта
 docker-compose down
+
+# Принудительное удаление контейнера визуализации, если он существует
+echo -e "${YELLOW}Проверка и удаление существующих контейнеров...${NC}"
+if [ "$(docker ps -a -q -f name=ai-agent-visualization)" ]; then
+    echo -e "${YELLOW}Удаление существующего контейнера ai-agent-visualization...${NC}"
+    docker rm -f ai-agent-visualization
+fi
+
+# Запуск всех сервисов
 docker-compose up -d
 
 # Проверка статуса
