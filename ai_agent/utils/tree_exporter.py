@@ -135,7 +135,7 @@ class DecisionTreeExporter:
             if query_type == 'compliance_check' and document_filename:
                 # Извлекаем имя файла без расширения
                 doc_name = os.path.splitext(os.path.basename(document_filename))[0]
-                timestamp = moscow_time.strftime('%Y%m%d %H-%M')
+                timestamp = moscow_time.strftime('%Y%m%d_%H-%M')
                 filename = f"c_check_{timestamp}_{doc_name}.json"
             else:
                 # Для других типов запросов используем старый формат
