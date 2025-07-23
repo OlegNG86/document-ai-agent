@@ -193,7 +193,8 @@ class QueryProcessor:
         self, 
         document_content: str, 
         session_id: str,
-        reference_document_ids: Optional[List[str]] = None
+        reference_document_ids: Optional[List[str]] = None,
+        document_filename: Optional[str] = None
     ) -> QueryResponse:
         """Process document compliance check.
         
@@ -201,6 +202,7 @@ class QueryProcessor:
             document_content: Content of document to check.
             session_id: Session identifier.
             reference_document_ids: Optional list of specific reference document IDs to use.
+            document_filename: Optional filename of the document being checked.
             
         Returns:
             Query response with compliance analysis.
@@ -259,7 +261,8 @@ class QueryProcessor:
                     query_type=QueryType.COMPLIANCE_CHECK,
                     relevant_chunks=relevant_chunks,
                     response_text=response_text,
-                    response_metadata={}
+                    response_metadata={},
+                    document_filename=document_filename
                 )
             
             # Create response object
@@ -482,7 +485,8 @@ class QueryProcessor:
         query_type: QueryType,
         relevant_chunks: List[Dict] = None,
         response_text: str = "",
-        response_metadata: Dict = None
+        response_metadata: Dict = None,
+        document_filename: str = None
     ) -> str:
         """Generate decision tree visualization for a query.
         
@@ -493,6 +497,7 @@ class QueryProcessor:
             relevant_chunks: List of relevant document chunks for confidence calculation.
             response_text: AI response text for confidence calculation.
             response_metadata: Response metadata for confidence calculation.
+            document_filename: Optional filename of the document being processed.
             
         Returns:
             Decision tree visualization string.
@@ -521,7 +526,7 @@ class QueryProcessor:
             if self.web_visualization:
                 try:
                     logger.info(f"Attempting to export decision tree for query type: {query_type.value}")
-                    tree_path = self.tree_exporter.export_tree(tree, query_type.value, query)
+                    tree_path = self.tree_exporter.export_tree(tree, query_type.value, query, document_filename)
                     if tree_path:
                         logger.info(f"Decision tree exported successfully to: {tree_path}")
                         visualization_url = self.tree_exporter.get_visualization_url(tree_path)

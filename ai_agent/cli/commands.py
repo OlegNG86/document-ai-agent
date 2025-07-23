@@ -631,7 +631,8 @@ def check_document(ctx, document_path, session_id, reference_docs, interactive, 
                 response = cli_instance.query_processor.process_document_check(
                     document_content=document_content,
                     session_id=session_id,
-                    reference_document_ids=reference_doc_ids
+                    reference_document_ids=reference_doc_ids,
+                    document_filename=document_path
                 )
                 
                 progress.update(task, description="Проверка завершена ✅")
@@ -1160,9 +1161,11 @@ def _document_check_mode(cli_instance, session_id):
             break
         
         # Check if it's a file path
+        document_filename = None
         if Path(user_input).exists():
             try:
                 file_path = Path(user_input)
+                document_filename = str(file_path)
                 if file_path.suffix.lower() == '.docx':
                     if DocxDocument is None:
                         console.print("[red]❌ Библиотека python-docx не установлена")
@@ -1193,7 +1196,8 @@ def _document_check_mode(cli_instance, session_id):
             try:
                 response = cli_instance.query_processor.process_document_check(
                     document_content=document_content,
-                    session_id=session_id
+                    session_id=session_id,
+                    document_filename=document_filename
                 )
                 
                 progress.update(task, description="Проверка завершена ✅")

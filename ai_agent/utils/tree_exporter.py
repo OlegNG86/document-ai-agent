@@ -7,6 +7,7 @@ import json
 import uuid
 import logging
 from datetime import datetime
+import pytz
 from typing import Dict, Any, Optional, List, Union
 
 logger = logging.getLogger(__name__)
@@ -109,7 +110,7 @@ class DecisionTreeExporter:
         
         return node_json
     
-    def export_tree(self, tree: Any, query_type: str, query_text: str = None) -> Optional[str]:
+    def export_tree(self, tree: Any, query_type: str, query_text: str = None, document_filename: str = None) -> Optional[str]:
         """
         Экспортирует дерево решений в JSON файл.
         
@@ -117,6 +118,7 @@ class DecisionTreeExporter:
             tree: Объект дерева решений.
             query_type: Тип запроса.
             query_text: Текст запроса пользователя для уникальности.
+            document_filename: Имя файла документа для включения в имя файла дерева.
             
         Returns:
             Optional[str]: Путь к сохраненному файлу или None в случае ошибки.
@@ -125,10 +127,22 @@ class DecisionTreeExporter:
             # Конвертируем дерево в JSON
             tree_json = self.convert_tree_to_json(tree, query_type, query_text)
             
-            # Генерируем имя файла с дополнительной уникальностью
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            microseconds = datetime.now().microsecond
-            filename = f"{query_type}_{timestamp}_{microseconds}_{tree_json['id'][:8]}.json"
+            # Получаем московское время
+            moscow_tz = pytz.timezone('Europe/Moscow')
+            moscow_time = datetime.now(moscow_tz)
+            
+            # Генерируем имя файла в новом формате
+            if query_type == 'compliance_check' and document_filename:
+                # Извлекаем имя файла без расширения
+                doc_name = os.path.splitext(os.path.basename(document_filename))[0]
+                timestamp = moscow_time.strftime('%Y%m%d %H-%M')
+                filename = f"c_check_{timestamp}_{doc_name}.json"
+            else:
+                # Для других типов запросов используем старый формат
+                timestamp = moscow_time.strftime('%Y%m%d_%H%M%S')
+                microseconds = moscow_time.microsecond
+                filename = f"{query_type}_{timestamp}_{microseconds}_{tree_json['id'][:8]}.json"
+            
             filepath = os.path.join(self.export_path, filename)
             
             # Сохраняем в файл
