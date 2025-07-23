@@ -42,7 +42,7 @@ def load_decision_trees():
                             'created_at': created_at,
                             'query_type': query_type,
                             'query_text': query_text,
-                            'display_name': f"{query_type} - {query_text[:50]}..." if len(query_text) > 50 else f"{query_type} - {query_text}"
+                            'display_name': file
                         })
                 except Exception as e:
                     st.error(f"Ошибка при загрузке {file}: {str(e)}")
