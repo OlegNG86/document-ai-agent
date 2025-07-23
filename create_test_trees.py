@@ -1,140 +1,130 @@
 #!/usr/bin/env python3
-"""
-Скрипт для создания тестовых деревьев решений для проверки уникальности.
-"""
+"""Скрипт для создания тестовых деревьев решений для веб-визуализации."""
 
-import sys
 import os
-import json
-from datetime import datetime
+import sys
+import logging
+from pathlib import Path
 
-# Добавляем путь к модулям проекта
-sys.path.append('/app')
+# Добавляем корневую директорию в путь
+sys.path.insert(0, str(Path(__file__).parent))
 
-try:
-    from ai_agent.utils.decision_tree import DecisionTreeBuilder, QueryType
-    from ai_agent.utils.tree_exporter import DecisionTreeExporter
-except ImportError as e:
-    print(f"Ошибка импорта: {e}")
-    print("Убедитесь, что скрипт запускается из контейнера ai-agent")
-    sys.exit(1)
+# Устанавливаем переменную окружения
+os.environ['VISUALIZATION_ENABLED'] = 'true'
+
+from ai_agent.utils.decision_tree import DecisionTreeBuilder, QueryType
+from ai_agent.utils.tree_exporter import DecisionTreeExporter
+
+# Настройка логирования
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 def create_test_trees():
-    """Создание тестовых деревьев решений."""
-    print("🌳 Создание тестовых деревьев решений...")
+    """Создает несколько тестовых деревьев для демонстрации."""
     
-    # Инициализация компонентов
-    builder = DecisionTreeBuilder()
-    exporter = DecisionTreeExporter('/tmp/decision_trees_analysis')
+    logger.info("🌳 Создание тестовых деревьев решений...")
     
-    # Тестовые запросы
-    test_queries = [
-        ("Проверить соответствие договора поставки требованиям закона о госзакупках", "compliance_check"),
-        ("Проверить соответствие трудового договора нормам трудового кодекса", "compliance_check"),
-        ("Найти информацию о требованиях к оформлению документов", "general_question"),
-        ("Какие документы нужны для регистрации ООО?", "general_question"),
-        ("Сравнить два договора на предмет различий", "general_question")
-    ]
-    
-    created_files = []
-    
-    for i, (query, query_type) in enumerate(test_queries, 1):
-        print(f"\n📝 Создание дерева {i}/5: {query[:50]}...")
+    try:
+        # Создаем компоненты
+        tree_builder = DecisionTreeBuilder()
+        tree_exporter = DecisionTreeExporter()
         
-        try:
-            # Создание дерева в зависимости от типа
-            if query_type == "compliance_check":
-                tree = builder.build_compliance_check_tree(
-                    has_reference_docs=True, 
-                    query_context=query
-                )
-                qt = QueryType.COMPLIANCE_CHECK
-            else:
-                tree = builder.build_general_query_tree(query, context_available=True)
-                qt = QueryType.GENERAL_QUESTION
+        # Тестовые запросы разных типов
+        test_cases = [
+            {
+                "query": "Какие требования к поставщикам в государственных закупках?",
+                "type": "general_question",
+                "context": True
+            },
+            {
+                "query": "Как проверить документы на соответствие 44-ФЗ?",
+                "type": "compliance_check", 
+                "context": True
+            },
+            {
+                "query": "Какие штрафы предусмотрены за нарушения в закупках?",
+                "type": "general_question",
+                "context": True
+            },
+            {
+                "query": "Процедура обжалования результатов закупки",
+                "type": "general_question",
+                "context": False
+            },
+            {
+                "query": "Требования к техническому заданию",
+                "type": "compliance_check",
+                "context": True
+            }
+        ]
+        
+        created_trees = []
+        
+        for i, test_case in enumerate(test_cases, 1):
+            logger.info(f"\n--- Создание дерева {i}/5: {test_case['query'][:50]}... ---")
             
-            # Экспорт дерева
-            file_path = exporter.export_tree(tree, qt.value, query)
-            
-            if file_path:
-                created_files.append(file_path)
-                print(f"✅ Создан файл: {os.path.basename(file_path)}")
-            else:
-                print(f"❌ Ошибка создания файла для запроса {i}")
-                
-        except Exception as e:
-            print(f"❌ Ошибка при создании дерева {i}: {e}")
-    
-    return created_files
-
-def analyze_uniqueness(files):
-    """Анализ уникальности созданных файлов."""
-    print(f"\n🔍 Анализ уникальности {len(files)} файлов...")
-    
-    if not files:
-        print("❌ Нет файлов для анализа")
-        return
-    
-    # Проверка содержимого файлов
-    file_contents = {}
-    unique_fields = set()
-    
-    for file_path in files:
-        try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                content = json.load(f)
-                file_contents[file_path] = content
-                
-                # Собираем уникальные поля для проверки
-                unique_key = (
-                    content.get('id', ''),
-                    content.get('timestamp', ''),
-                    content.get('query_text', ''),
-                    content.get('root', {}).get('label', ''),
-                    content.get('root', {}).get('description', '')
+            # Создаем дерево в зависимости от типа
+            if test_case['type'] == 'compliance_check':
+                tree = tree_builder.build_compliance_check_tree(
+                    has_reference_docs=test_case['context'],
+                    query_context=test_case['query']
                 )
-                unique_fields.add(unique_key)
+            else:
+                tree = tree_builder.build_general_query_tree(
+                    query=test_case['query'],
+                    context_available=test_case['context']
+                )
+            
+            logger.info(f"✅ Дерево создано с ID: {tree.id}")
+            
+            # Экспортируем дерево
+            tree_path = tree_exporter.export_tree(
+                tree=tree,
+                query_type=test_case['type'],
+                query_text=test_case['query']
+            )
+            
+            if tree_path:
+                logger.info(f"📁 Экспортировано в: {tree_path}")
                 
-        except Exception as e:
-            print(f"❌ Ошибка чтения файла {os.path.basename(file_path)}: {e}")
-    
-    # Результаты анализа
-    print(f"\n📊 Результаты анализа:")
-    print(f"   Всего файлов: {len(files)}")
-    print(f"   Уникальных по содержимому: {len(unique_fields)}")
-    
-    if len(unique_fields) == len(files):
-        print("✅ Все файлы уникальны!")
-    else:
-        print("❌ Найдены дублирующиеся файлы")
-    
-    # Показать ключевые поля каждого файла
-    print(f"\n📋 Ключевые поля файлов:")
-    for file_path in files:
-        if file_path in file_contents:
-            content = file_contents[file_path]
-            filename = os.path.basename(file_path)
-            print(f"\n🔸 {filename}:")
-            print(f"   ID: {content.get('id', 'N/A')[:8]}...")
-            print(f"   Timestamp: {content.get('timestamp', 'N/A')}")
-            print(f"   Query: {content.get('query_text', 'N/A')[:50]}...")
-            print(f"   Root Label: {content.get('root', {}).get('label', 'N/A')}")
-
-def main():
-    """Главная функция."""
-    print("🚀 Тестирование уникальности деревьев решений")
-    print("=" * 60)
-    
-    # Создание тестовых деревьев
-    created_files = create_test_trees()
-    
-    # Анализ уникальности
-    analyze_uniqueness(created_files)
-    
-    print("\n" + "=" * 60)
-    print("✨ Тестирование завершено!")
-    print(f"📁 Файлы сохранены в: /tmp/decision_trees_analysis/")
-    print(f"🌐 Визуализация доступна: http://localhost:8501")
+                # Получаем URL
+                viz_url = tree_exporter.get_visualization_url(tree_path)
+                logger.info(f"🔗 URL: {viz_url}")
+                
+                created_trees.append({
+                    'query': test_case['query'],
+                    'type': test_case['type'],
+                    'path': tree_path,
+                    'url': viz_url
+                })
+            else:
+                logger.error(f"❌ Ошибка экспорта для: {test_case['query']}")
+        
+        # Итоговая статистика
+        logger.info(f"\n📊 === ИТОГИ ===")
+        logger.info(f"✅ Создано деревьев: {len(created_trees)}")
+        logger.info(f"🌐 Веб-визуализация: http://localhost:8501")
+        
+        # Проверяем общее количество файлов
+        export_dir = "./visualization/data/decision_trees"
+        if os.path.exists(export_dir):
+            files = [f for f in os.listdir(export_dir) if f.endswith('.json')]
+            logger.info(f"📁 Всего файлов в директории: {len(files)}")
+            
+            # Показываем последние созданные файлы
+            logger.info(f"\n📋 Последние созданные деревья:")
+            for tree in created_trees:
+                filename = os.path.basename(tree['path'])
+                file_size = os.path.getsize(tree['path'])
+                logger.info(f"  • {filename} ({file_size} байт)")
+                logger.info(f"    Запрос: {tree['query'][:60]}...")
+        
+        logger.info(f"\n🎉 Тестовые деревья созданы! Откройте http://localhost:8501 для просмотра.")
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка при создании тестовых деревьев: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
 
 if __name__ == "__main__":
-    main()
+    create_test_trees()
