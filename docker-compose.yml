@@ -38,6 +38,7 @@ services:
       - VISUALIZATION_ENABLED=${VISUALIZATION_ENABLED:-true}
       - VISUALIZATION_URL=http://localhost:8501
       - DECISION_TREE_EXPORT_PATH=/app/visualization/data/decision_trees
+      - SHOW_DECISION_TREE=true
     depends_on:
       - chromadb
     restart: unless-stopped

@@ -644,7 +644,7 @@ def get_decision_tree_settings() -> Dict[str, Any]:
         Dictionary with settings.
     """
     return {
-        'enabled': os.getenv('SHOW_DECISION_TREE', 'false').lower() in ['true', '1', 'yes'],
+        'enabled': os.getenv('SHOW_DECISION_TREE', 'true').lower() in ['true', '1', 'yes'],
         'detail_level': DetailLevel(os.getenv('DECISION_TREE_DETAIL', 'full')),
         'use_colors': os.getenv('DECISION_TREE_COLORS', 'true').lower() in ['true', '1', 'yes'],
         'max_width': int(os.getenv('DECISION_TREE_WIDTH', '80'))
