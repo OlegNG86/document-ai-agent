@@ -258,15 +258,39 @@ class DecisionTreeBuilder:
         
         return tree
     
-    def build_compliance_check_tree(self, has_reference_docs: bool = True, query_context: str = "") -> DecisionTree:
-        """Build decision tree for compliance checking.
+    def _normalize_probabilities(self, probabilities: List[float]) -> List[float]:
+        """Normalize probabilities so their sum equals 1.0.
+        
+        Args:
+            probabilities: List of probability values.
+            
+        Returns:
+            Normalized probabilities that sum to 1.0.
+        """
+        total = sum(probabilities)
+        if total == 0:
+            return [1.0 / len(probabilities)] * len(probabilities)
+        return [p / total for p in probabilities]
+    
+    def build_compliance_check_tree(
+        self, 
+        has_reference_docs: bool = True, 
+        query_context: str = "",
+        context_confidence: float = 0.8,
+        analysis_confidence: float = 0.7,
+        compliance_confidence: float = 0.5
+    ) -> DecisionTree:
+        """Build dynamic decision tree for compliance checking based on AI confidence.
         
         Args:
             has_reference_docs: Whether reference documents are available.
             query_context: Additional context about the compliance check query.
+            context_confidence: AI confidence in found context (0.0-1.0).
+            analysis_confidence: AI confidence in analysis capability (0.0-1.0).
+            compliance_confidence: AI confidence in compliance result (0.0-1.0).
             
         Returns:
-            Decision tree for compliance check.
+            Decision tree for compliance check with dynamic probabilities.
         """
         timestamp = datetime.now().strftime("%H:%M:%S")
         tree = self.create_tree(QueryType.COMPLIANCE_CHECK, f"Проверка соответствия ({timestamp})")
@@ -275,30 +299,88 @@ class DecisionTreeBuilder:
         context_info = f" | Контекст: {query_context}" if query_context else ""
         tree.root.description = f"Анализ соответствия документа нормативным требованиям{context_info}"
         
-        # First level: Reference documents availability
+        # First level: Reference documents availability (dynamic based on context_confidence)
         if has_reference_docs:
+            # Динамические вероятности на основе уверенности в контексте
+            if context_confidence >= 0.8:
+                # Высокая уверенность в найденных документах
+                found_prob = 0.85 + (context_confidence - 0.8) * 0.75  # 0.85-1.0
+                partial_prob = 1.0 - found_prob
+            elif context_confidence >= 0.5:
+                # Средняя уверенность
+                found_prob = 0.5 + (context_confidence - 0.5) * 1.17  # 0.5-0.85
+                partial_prob = 1.0 - found_prob
+            else:
+                # Низкая уверенность - больше частичных документов
+                found_prob = context_confidence  # 0.0-0.5
+                partial_prob = 1.0 - found_prob
+            
+            # Нормализуем вероятности
+            probs = self._normalize_probabilities([found_prob, partial_prob])
+            
             self.add_decision_branch(tree, [], [
-                ("Эталонные документы найдены", 0.9, f"Найдены нормативные документы для проверки{context_info}"),
-                ("Частичная база нормативов", 0.1, f"Найдена только часть необходимых нормативов{context_info}")
+                ("Эталонные документы найдены", probs[0], f"Найдены нормативные документы для проверки{context_info} (уверенность: {context_confidence:.2f})"),
+                ("Частичная база нормативов", probs[1], f"Найдена только часть необходимых нормативов{context_info} (уверенность: {context_confidence:.2f})")
             ])
         else:
             self.add_decision_branch(tree, [], [
                 ("Нормативы отсутствуют", 1.0, f"Нормативные документы не найдены{context_info}")
             ])
         
-        # Second level: Analysis type
+        # Second level: Analysis type (dynamic based on analysis_confidence)
+        if analysis_confidence >= 0.8:
+            # Высокая уверенность в анализе - больше полных проверок
+            full_prob = 0.7 + (analysis_confidence - 0.8) * 1.5  # 0.7-1.0
+            selective_prob = 0.25 * (1.0 - analysis_confidence + 0.8)  # уменьшается
+            basic_prob = 0.05 * (1.0 - analysis_confidence + 0.8)  # уменьшается
+        elif analysis_confidence >= 0.5:
+            # Средняя уверенность - больше выборочных проверок
+            full_prob = 0.3 + (analysis_confidence - 0.5) * 1.33  # 0.3-0.7
+            selective_prob = 0.4 + (analysis_confidence - 0.5) * 0.33  # 0.4-0.5
+            basic_prob = 0.3 - (analysis_confidence - 0.5) * 0.67  # 0.3-0.1
+        else:
+            # Низкая уверенность - больше базовых проверок
+            full_prob = analysis_confidence * 0.6  # 0.0-0.3
+            selective_prob = 0.2 + analysis_confidence * 0.4  # 0.2-0.4
+            basic_prob = 0.8 - analysis_confidence * 1.0  # 0.8-0.3
+        
+        # Нормализуем вероятности
+        analysis_probs = self._normalize_probabilities([full_prob, selective_prob, basic_prob])
+        
         self.add_decision_branch(tree, ["Эталонные документы найдены"], [
-            ("Полная проверка", 0.7, "Возможна полная проверка соответствия"),
-            ("Выборочная проверка", 0.2, "Проверка по ключевым критериям"),
-            ("Базовая проверка", 0.1, "Проверка основных требований")
+            ("Полная проверка", analysis_probs[0], f"Возможна полная проверка соответствия (уверенность в анализе: {analysis_confidence:.2f})"),
+            ("Выборочная проверка", analysis_probs[1], f"Проверка по ключевым критериям (уверенность в анализе: {analysis_confidence:.2f})"),
+            ("Базовая проверка", analysis_probs[2], f"Проверка основных требований (уверенность в анализе: {analysis_confidence:.2f})")
         ])
         
-        # Third level: Compliance result
+        # Third level: Compliance result (dynamic based on compliance_confidence)
+        if compliance_confidence >= 0.8:
+            # Высокая уверенность в соответствии
+            full_compliance = 0.4 + (compliance_confidence - 0.8) * 3.0  # 0.4-1.0
+            with_remarks = 0.4 * (1.0 - compliance_confidence + 0.8)  # уменьшается
+            partial = 0.15 * (1.0 - compliance_confidence + 0.8)  # уменьшается
+            non_compliance = 0.05 * (1.0 - compliance_confidence + 0.8)  # уменьшается
+        elif compliance_confidence >= 0.5:
+            # Средняя уверенность - больше соответствия с замечаниями
+            full_compliance = 0.1 + (compliance_confidence - 0.5) * 1.0  # 0.1-0.4
+            with_remarks = 0.5 + (compliance_confidence - 0.5) * 0.33  # 0.5-0.6
+            partial = 0.3 - (compliance_confidence - 0.5) * 0.5  # 0.3-0.15
+            non_compliance = 0.1 - (compliance_confidence - 0.5) * 0.17  # 0.1-0.05
+        else:
+            # Низкая уверенность - больше частичного соответствия или несоответствия
+            full_compliance = compliance_confidence * 0.2  # 0.0-0.1
+            with_remarks = 0.2 + compliance_confidence * 0.6  # 0.2-0.5
+            partial = 0.5 + (0.5 - compliance_confidence) * 0.6  # 0.5-0.8
+            non_compliance = 0.3 - compliance_confidence * 0.4  # 0.3-0.1
+        
+        # Нормализуем вероятности
+        compliance_probs = self._normalize_probabilities([full_compliance, with_remarks, partial, non_compliance])
+        
         self.add_decision_branch(tree, ["Эталонные документы найдены", "Полная проверка"], [
-            ("Полное соответствие", 0.3, "Документ полностью соответствует требованиям"),
-            ("Соответствие с замечаниями", 0.5, "Соответствие с незначительными замечаниями"),
-            ("Частичное соответствие", 0.15, "Значительные нарушения требований"),
-            ("Несоответствие", 0.05, "Критические нарушения")
+            ("Полное соответствие", compliance_probs[0], f"Документ полностью соответствует требованиям (уверенность: {compliance_confidence:.2f})"),
+            ("Соответствие с замечаниями", compliance_probs[1], f"Соответствие с незначительными замечаниями (уверенность: {compliance_confidence:.2f})"),
+            ("Частичное соответствие", compliance_probs[2], f"Значительные нарушения требований (уверенность: {compliance_confidence:.2f})"),
+            ("Несоответствие", compliance_probs[3], f"Критические нарушения (уверенность: {compliance_confidence:.2f})")
         ])
         
         return tree

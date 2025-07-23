@@ -126,7 +126,10 @@ class QueryProcessor:
                 decision_tree_output = self._generate_decision_tree_for_query(
                     query=query,
                     has_context=bool(relevant_chunks),
-                    query_type=QueryType.GENERAL_QUESTION
+                    query_type=QueryType.GENERAL_QUESTION,
+                    relevant_chunks=relevant_chunks,
+                    response_text=response_text,
+                    response_metadata={}
                 )
             
             # Create response object
@@ -253,7 +256,10 @@ class QueryProcessor:
                 decision_tree_output = self._generate_decision_tree_for_query(
                     query="Проверка документа на соответствие",
                     has_context=bool(relevant_chunks),
-                    query_type=QueryType.COMPLIANCE_CHECK
+                    query_type=QueryType.COMPLIANCE_CHECK,
+                    relevant_chunks=relevant_chunks,
+                    response_text=response_text,
+                    response_metadata={}
                 )
             
             # Create response object
@@ -473,7 +479,10 @@ class QueryProcessor:
         self,
         query: str,
         has_context: bool,
-        query_type: QueryType
+        query_type: QueryType,
+        relevant_chunks: List[Dict] = None,
+        response_text: str = "",
+        response_metadata: Dict = None
     ) -> str:
         """Generate decision tree visualization for a query.
         
@@ -481,6 +490,9 @@ class QueryProcessor:
             query: The user query.
             has_context: Whether relevant context was found.
             query_type: Type of the query.
+            relevant_chunks: List of relevant document chunks for confidence calculation.
+            response_text: AI response text for confidence calculation.
+            response_metadata: Response metadata for confidence calculation.
             
         Returns:
             Decision tree visualization string.
@@ -488,7 +500,18 @@ class QueryProcessor:
         try:
             # Build appropriate decision tree based on query type
             if query_type == QueryType.COMPLIANCE_CHECK:
-                tree = self.tree_builder.build_compliance_check_tree(has_context, query)
+                # Calculate dynamic confidence scores
+                context_confidence = self._calculate_context_confidence(relevant_chunks or [])
+                analysis_confidence = self._calculate_analysis_confidence(response_metadata)
+                compliance_confidence = self._calculate_compliance_confidence(response_text)
+                
+                tree = self.tree_builder.build_compliance_check_tree(
+                    has_reference_docs=has_context,
+                    query_context=query,
+                    context_confidence=context_confidence,
+                    analysis_confidence=analysis_confidence,
+                    compliance_confidence=compliance_confidence
+                )
             else:
                 tree = self.tree_builder.build_general_query_tree(query, has_context)
             
@@ -569,3 +592,106 @@ class QueryProcessor:
             'decision_tree_enabled': self.decision_tree_settings['enabled'],
             'web_visualization_enabled': self.web_visualization
         }
+    
+    def _calculate_context_confidence(self, relevant_chunks: List[Dict]) -> float:
+        """Calculate confidence in found context based on relevance and quantity.
+        
+        Args:
+            relevant_chunks: List of relevant document chunks.
+            
+        Returns:
+            Confidence score between 0.0 and 1.0.
+        """
+        if not relevant_chunks:
+            return 0.0
+        
+        # Base confidence on number of chunks (more chunks = higher confidence)
+        chunk_count_factor = min(len(relevant_chunks) / 10.0, 1.0)  # Max at 10 chunks
+        
+        # Calculate average relevance score if available
+        relevance_scores = []
+        for chunk in relevant_chunks:
+            # Try to get relevance score from metadata
+            score = chunk.get('metadata', {}).get('relevance_score', 0.7)  # Default 0.7
+            relevance_scores.append(score)
+        
+        avg_relevance = sum(relevance_scores) / len(relevance_scores) if relevance_scores else 0.7
+        
+        # Combine factors
+        confidence = (chunk_count_factor * 0.4 + avg_relevance * 0.6)
+        return min(max(confidence, 0.0), 1.0)  # Clamp between 0 and 1
+    
+    def _calculate_analysis_confidence(self, response_metadata: Dict = None) -> float:
+        """Calculate confidence in analysis capability based on response metadata.
+        
+        Args:
+            response_metadata: Metadata from AI response.
+            
+        Returns:
+            Confidence score between 0.0 and 1.0.
+        """
+        if not response_metadata:
+            return 0.7  # Default medium confidence
+        
+        # Factors that could indicate analysis confidence:
+        # - Response length (longer = more detailed analysis)
+        # - Presence of specific keywords
+        # - Model confidence if available
+        
+        confidence = 0.7  # Base confidence
+        
+        # Adjust based on available metadata
+        if 'model_confidence' in response_metadata:
+            confidence = response_metadata['model_confidence']
+        
+        return min(max(confidence, 0.0), 1.0)
+    
+    def _calculate_compliance_confidence(self, response_text: str) -> float:
+        """Calculate confidence in compliance result based on response content.
+        
+        Args:
+            response_text: The AI response text.
+            
+        Returns:
+            Confidence score between 0.0 and 1.0.
+        """
+        if not response_text:
+            return 0.5
+        
+        # Analyze response text for confidence indicators
+        response_lower = response_text.lower()
+        
+        # High confidence indicators
+        high_confidence_words = [
+            'полностью соответствует', 'четко определен', 'явно указан',
+            'безусловно', 'определенно', 'точно соответствует'
+        ]
+        
+        # Low confidence indicators  
+        low_confidence_words = [
+            'возможно', 'вероятно', 'может быть', 'предположительно',
+            'неясно', 'сложно определить', 'требует уточнения'
+        ]
+        
+        # Medium confidence indicators
+        medium_confidence_words = [
+            'соответствует с замечаниями', 'в целом соответствует',
+            'частично соответствует', 'с некоторыми нарушениями'
+        ]
+        
+        confidence = 0.5  # Base confidence
+        
+        # Count indicators
+        high_count = sum(1 for word in high_confidence_words if word in response_lower)
+        low_count = sum(1 for word in low_confidence_words if word in response_lower)
+        medium_count = sum(1 for word in medium_confidence_words if word in response_lower)
+        
+        # Adjust confidence based on indicators
+        if high_count > low_count:
+            confidence = 0.7 + (high_count * 0.1)
+        elif low_count > high_count:
+            confidence = 0.3 - (low_count * 0.1)
+        elif medium_count > 0:
+            confidence = 0.5 + (medium_count * 0.05)
+        
+        return min(max(confidence, 0.0), 1.0)
