@@ -285,11 +285,13 @@ class QueryProcessor:
                 if doc_id:
                     response.add_relevant_document(doc_id)
             
-            # Set confidence based on available normative documents
-            if relevant_chunks:
-                response.set_confidence_score(0.8)  # High confidence with normative docs
-            else:
-                response.set_confidence_score(0.4)  # Lower without reference docs
+            # Calculate dynamic confidence based on multiple factors
+            confidence_score = self._calculate_compliance_confidence(
+                relevant_chunks=relevant_chunks,
+                response_text=response_text,
+                processing_time=processing_time
+            )
+            response.set_confidence_score(confidence_score)
             
             # Add assistant message to session
             assistant_metadata = {
@@ -651,52 +653,92 @@ class QueryProcessor:
         
         return min(max(confidence, 0.0), 1.0)
     
-    def _calculate_compliance_confidence(self, response_text: str) -> float:
-        """Calculate confidence in compliance result based on response content.
+    def _calculate_compliance_confidence(
+        self, 
+        relevant_chunks: List[Dict] = None, 
+        response_text: str = "", 
+        processing_time: float = 0.0
+    ) -> float:
+        """Calculate dynamic confidence in compliance result based on multiple factors.
         
         Args:
+            relevant_chunks: List of relevant document chunks found.
             response_text: The AI response text.
+            processing_time: Time taken to process the request.
             
         Returns:
             Confidence score between 0.0 and 1.0.
         """
-        if not response_text:
-            return 0.5
+        # Base confidence factors
+        context_confidence = 0.5
+        content_confidence = 0.5
+        processing_confidence = 0.5
         
-        # Analyze response text for confidence indicators
-        response_lower = response_text.lower()
+        # 1. Context confidence based on found documents
+        if relevant_chunks:
+            # Quality of found documents
+            avg_relevance = sum(chunk.get('relevance_score', 0.5) for chunk in relevant_chunks) / len(relevant_chunks)
+            # Quantity factor (more documents = higher confidence, but with diminishing returns)
+            quantity_factor = min(len(relevant_chunks) / 10.0, 1.0)  # Max at 10 documents
+            context_confidence = (avg_relevance * 0.7) + (quantity_factor * 0.3)
+        else:
+            context_confidence = 0.2  # Low confidence without reference docs
         
-        # High confidence indicators
-        high_confidence_words = [
-            'полностью соответствует', 'четко определен', 'явно указан',
-            'безусловно', 'определенно', 'точно соответствует'
-        ]
+        # 2. Content confidence based on response analysis
+        if response_text:
+            response_lower = response_text.lower()
+            
+            # High confidence indicators
+            high_confidence_words = [
+                'полностью соответствует', 'четко определен', 'явно указан',
+                'безусловно', 'определенно', 'точно соответствует', 'соответствует требованиям'
+            ]
+            
+            # Low confidence indicators  
+            low_confidence_words = [
+                'возможно', 'вероятно', 'может быть', 'предположительно',
+                'неясно', 'сложно определить', 'требует уточнения', 'необходимо проверить'
+            ]
+            
+            # Medium confidence indicators
+            medium_confidence_words = [
+                'соответствует с замечаниями', 'в целом соответствует',
+                'частично соответствует', 'с некоторыми нарушениями'
+            ]
+            
+            # Count indicators
+            high_count = sum(1 for word in high_confidence_words if word in response_lower)
+            low_count = sum(1 for word in low_confidence_words if word in response_lower)
+            medium_count = sum(1 for word in medium_confidence_words if word in response_lower)
+            
+            # Calculate content confidence
+            if high_count > low_count:
+                content_confidence = 0.7 + min(high_count * 0.05, 0.2)
+            elif low_count > high_count:
+                content_confidence = 0.4 - min(low_count * 0.05, 0.2)
+            elif medium_count > 0:
+                content_confidence = 0.6
+            else:
+                content_confidence = 0.5
         
-        # Low confidence indicators  
-        low_confidence_words = [
-            'возможно', 'вероятно', 'может быть', 'предположительно',
-            'неясно', 'сложно определить', 'требует уточнения'
-        ]
+        # 3. Processing confidence based on response time
+        if processing_time > 0:
+            # Optimal processing time is around 15-30 seconds
+            # Too fast might indicate shallow analysis, too slow might indicate uncertainty
+            if 15 <= processing_time <= 30:
+                processing_confidence = 0.8
+            elif 10 <= processing_time < 15 or 30 < processing_time <= 45:
+                processing_confidence = 0.6
+            elif processing_time < 10:
+                processing_confidence = 0.4  # Too fast
+            else:
+                processing_confidence = 0.5  # Too slow
         
-        # Medium confidence indicators
-        medium_confidence_words = [
-            'соответствует с замечаниями', 'в целом соответствует',
-            'частично соответствует', 'с некоторыми нарушениями'
-        ]
+        # Weighted average of all confidence factors
+        final_confidence = (
+            context_confidence * 0.5 +      # 50% weight on document quality
+            content_confidence * 0.35 +     # 35% weight on response analysis  
+            processing_confidence * 0.15    # 15% weight on processing time
+        )
         
-        confidence = 0.5  # Base confidence
-        
-        # Count indicators
-        high_count = sum(1 for word in high_confidence_words if word in response_lower)
-        low_count = sum(1 for word in low_confidence_words if word in response_lower)
-        medium_count = sum(1 for word in medium_confidence_words if word in response_lower)
-        
-        # Adjust confidence based on indicators
-        if high_count > low_count:
-            confidence = 0.7 + (high_count * 0.1)
-        elif low_count > high_count:
-            confidence = 0.3 - (low_count * 0.1)
-        elif medium_count > 0:
-            confidence = 0.5 + (medium_count * 0.05)
-        
-        return min(max(confidence, 0.0), 1.0)
+        return min(max(final_confidence, 0.0), 1.0)

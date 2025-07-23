@@ -45,7 +45,24 @@ docker-compose ps
 echo -e "\n${GREEN}=== Проект запущен ===${NC}"
 echo -e "ChromaDB доступен по адресу: ${BLUE}http://localhost:8000${NC}"
 echo -e "Визуализация деревьев решений доступна по адресу: ${BLUE}http://localhost:8501${NC}"
-echo -e "\nДля использования AI агента выполните:"
-echo -e "${YELLOW}docker-compose exec ai-agent poetry run python -m ai_agent.main query${NC}"
-echo -e "\nДля проверки документа с визуализацией:"
-echo -e "${YELLOW}docker-compose exec ai-agent poetry run python -m ai_agent.main check-document /path/to/document.txt --web-visualization${NC}"
+
+echo -e "\n${GREEN}=== Основные команды ===${NC}"
+echo -e "Для получения справки по всем командам:"
+echo -e "${YELLOW}docker-compose exec ai-agent poetry run docai --help${NC}"
+
+echo -e "\nДля интерактивного режима запросов:"
+echo -e "${YELLOW}docker-compose exec ai-agent poetry run docai query${NC}"
+
+echo -e "\nДля проверки документа на соответствие:"
+echo -e "${YELLOW}docker-compose exec ai-agent poetry run docai check-document /app/data/contracts-to-check/perfect_contract.txt --web-visualization${NC}"
+
+echo -e "\nДля загрузки документов в базу знаний:"
+echo -e "${YELLOW}docker-compose exec ai-agent poetry run docai upload /path/to/document.txt${NC}"
+
+echo -e "\nДля загрузки эталонных документов:"
+echo -e "${YELLOW}docker-compose exec ai-agent poetry run docai upload-reference /path/to/reference.txt${NC}"
+
+echo -e "\nДля просмотра состояния системы:"
+echo -e "${YELLOW}docker-compose exec ai-agent poetry run docai health${NC}"
+
+echo -e "\n${BLUE}💡 Совет: Используйте --help с любой командой для получения подробной справки${NC}"
