@@ -2,17 +2,25 @@ server:
   name: "chromadb-mcp-server"
   version: "0.1.0"
   log_level: "INFO"
+  mode: "http" # http or stdio
+  host: "0.0.0.0"
+  port: 3000
 
 tools:
   chromadb:
     enabled: true
-    host: "localhost"
-    port: 8000
+    host: "${CHROMADB_HOST:-chromadb}"
+    port: "${CHROMADB_PORT:-8000}"
     collection_prefix: "mcp_"
     embedding:
-      provider: "openai"
-      model: "text-embedding-3-small"
-      api_key: "${OPENAI_API_KEY}"
+      provider: "ollama"
+      model: "${OLLAMA_EMBEDDING_MODEL:-nomic-embed-text:latest}"
+      host: "${OLLAMA_HOST:-http://localhost:11434}"
+    ollama:
+      host: "${OLLAMA_HOST:-http://localhost:11434}"
+      default_model: "${OLLAMA_DEFAULT_MODEL:-qwen2.5vl:latest}"
+      complex_model: "${OLLAMA_COMPLEX_MODEL:-qwen2.5vl:72b}"
+      embedding_model: "${OLLAMA_EMBEDDING_MODEL:-nomic-embed-text:latest}"
     chunking:
       size: 1000
       overlap: 200

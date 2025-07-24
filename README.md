@@ -1309,3 +1309,106 @@ MIT License - см. файл LICENSE для деталей.
 ## Поддержка
 
 Для сообщения об ошибках и предложений используйте GitHub Issues.
+
+## MCP Server Integration
+
+Система включает в себя MCP (Model Context Protocol) сервер для интеграции с внешними AI агентами и IDE.
+
+### ChromaDB MCP Server
+
+MCP сервер предоставляет HTTP API для взаимодействия с ChromaDB векторной базой данных:
+
+- **URL**: http://localhost:3000
+- **Health Check**: http://localhost:3000/health
+- **MCP Tools**: http://localhost:3000/mcp/tools
+
+### Доступные MCP инструменты
+
+#### chromadb_search
+
+Поиск документов в ChromaDB по семантическому сходству.
+
+**Параметры:**
+
+- `query` (string, обязательный) - поисковый запрос
+- `collection` (string, обязательный) - имя коллекции
+- `n_results` (integer, опциональный) - количество результатов (по умолчанию: 5)
+
+**Пример использования:**
+
+```bash
+curl -X POST http://localhost:3000/mcp/tools/chromadb_search \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "требования к договору поставки",
+    "collection": "documents",
+    "n_results": 5
+  }'
+```
+
+### Конфигурация MCP сервера
+
+MCP сервер настраивается через переменные окружения:
+
+```bash
+# ChromaDB подключение
+CHROMADB_HOST=chromadb
+CHROMADB_PORT=8000
+
+# OpenAI API для эмбеддингов
+OPENAI_API_KEY=your_api_key_here
+
+# MCP сервер настройки
+MCP_SERVER_HOST=0.0.0.0
+MCP_SERVER_PORT=3000
+LOG_LEVEL=INFO
+```
+
+### Интеграция с IDE
+
+Для интеграции с Kiro IDE или другими MCP-совместимыми инструментами:
+
+1. Убедитесь, что MCP сервер запущен:
+
+```bash
+curl http://localhost:3000/health
+```
+
+2. Настройте MCP клиент для подключения к `http://localhost:3000`
+
+3. Используйте доступные инструменты для поиска в документах
+
+### Разработка MCP инструментов
+
+Структура MCP сервера позволяет легко добавлять новые инструменты:
+
+```
+mcp-servers/chromadb-server/
+├── src/chromadb_mcp_server/
+│   ├── core/          # Основные компоненты MCP
+│   ├── tools/         # Реализации инструментов
+│   ├── services/      # Сервисы (эмбеддинги, чанкинг)
+│   └── models/        # Модели данных
+├── config/            # Конфигурационные файлы
+├── tests/             # Тесты
+└── Dockerfile         # Docker образ
+```
+
+Для добавления нового инструмента:
+
+1. Создайте класс инструмента в `tools/`
+2. Зарегистрируйте инструмент в основном сервере
+3. Добавьте соответствующие тесты
+4. Обновите конфигурацию
+
+### Логи MCP сервера
+
+Просмотр логов MCP сервера:
+
+```bash
+# Логи MCP сервера
+docker-compose logs -f chromadb-mcp-server
+
+# Проверка статуса всех сервисов
+docker-compose ps
+```
