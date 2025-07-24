@@ -72,12 +72,59 @@ class DecisionTreeExporter:
             'id': tree_id,
             'query_type': query_type,
             'timestamp': timestamp,
-            'query_text': query_text or '',
-            'root': root_node,
+            'query_text': self._clean_text(query_text or ''),
+            'root': self._clean_node_data(root_node),
             'statistics': stats
         }
         
         return tree_json
+    
+    def _clean_text(self, text: str) -> str:
+        """Clean text from problematic Unicode characters.
+        
+        Args:
+            text: Text to clean.
+            
+        Returns:
+            Cleaned text.
+        """
+        if not text:
+            return ""
+        
+        try:
+            # Remove surrogate characters and other problematic Unicode
+            clean_text = text.encode('utf-8', errors='ignore').decode('utf-8')
+            return clean_text
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            # Fallback: replace problematic characters
+            return ''.join(char for char in text if ord(char) < 0x110000 and not (0xD800 <= ord(char) <= 0xDFFF))
+    
+    def _clean_node_data(self, node_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Recursively clean node data from problematic Unicode characters.
+        
+        Args:
+            node_data: Node data to clean.
+            
+        Returns:
+            Cleaned node data.
+        """
+        if not isinstance(node_data, dict):
+            return node_data
+        
+        cleaned = {}
+        for key, value in node_data.items():
+            if isinstance(value, str):
+                cleaned[key] = self._clean_text(value)
+            elif isinstance(value, list):
+                cleaned[key] = [self._clean_node_data(item) if isinstance(item, dict) else 
+                              self._clean_text(item) if isinstance(item, str) else item 
+                              for item in value]
+            elif isinstance(value, dict):
+                cleaned[key] = self._clean_node_data(value)
+            else:
+                cleaned[key] = value
+        
+        return cleaned
     
     def _convert_node(self, node: Any) -> Dict[str, Any]:
         """
@@ -147,7 +194,11 @@ class DecisionTreeExporter:
             
             # Сохраняем в файл
             with open(filepath, 'w', encoding='utf-8') as f:
-                json.dump(tree_json, f, ensure_ascii=False, indent=2)
+                try:
+                    json.dump(tree_json, f, ensure_ascii=False, indent=2)
+                except UnicodeEncodeError:
+                    # Fallback: use ASCII encoding
+                    json.dump(tree_json, f, ensure_ascii=True, indent=2)
             
             logger.info(f"Дерево решений успешно экспортировано: {filepath}")
             return filepath

@@ -239,7 +239,10 @@ class QueryCache:
         }
         
         key_str = str(sorted(key_data.items()))
-        return hashlib.md5(key_str.encode()).hexdigest()
+        try:
+            return hashlib.md5(key_str.encode('utf-8')).hexdigest()
+        except UnicodeEncodeError:
+            return hashlib.md5(key_str.encode('utf-8', errors='ignore')).hexdigest()
     
     def _generate_embedding_key(self, text: str, model: str = "nomic-embed-text") -> str:
         """Generate cache key for embeddings.
@@ -251,8 +254,20 @@ class QueryCache:
         Returns:
             Cache key.
         """
-        key_str = f"{model}:{text}"
-        return hashlib.md5(key_str.encode()).hexdigest()
+        # Clean text from surrogate characters and other problematic Unicode
+        try:
+            # Remove surrogate characters and other problematic Unicode
+            clean_text = text.encode('utf-8', errors='ignore').decode('utf-8')
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            # Fallback: replace problematic characters
+            clean_text = ''.join(char for char in text if ord(char) < 0x110000 and not (0xD800 <= ord(char) <= 0xDFFF))
+        
+        key_str = f"{model}:{clean_text}"
+        try:
+            return hashlib.md5(key_str.encode('utf-8')).hexdigest()
+        except UnicodeEncodeError:
+            # Final fallback: use ASCII encoding with replacement
+            return hashlib.md5(key_str.encode('ascii', errors='replace')).hexdigest()
     
     def get_query_result(self, query: str, **kwargs) -> Optional[Any]:
         """Get cached query result.
@@ -428,7 +443,10 @@ def cached_query(ttl: Optional[int] = None):
         def wrapper(*args, **kwargs):
             # Generate cache key from function arguments
             cache_key = f"{func.__name__}:{str(args)}:{str(sorted(kwargs.items()))}"
-            cache_key = hashlib.md5(cache_key.encode()).hexdigest()
+            try:
+                cache_key = hashlib.md5(cache_key.encode('utf-8')).hexdigest()
+            except UnicodeEncodeError:
+                cache_key = hashlib.md5(cache_key.encode('utf-8', errors='ignore')).hexdigest()
             
             # Try to get from cache
             result = cache_manager.query_cache.cache.get(cache_key)
