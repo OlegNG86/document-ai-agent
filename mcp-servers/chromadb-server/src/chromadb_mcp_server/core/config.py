@@ -104,7 +104,7 @@ class ServerConfig(BaseModel):
     @classmethod
     def validate_mode(cls, v):
         """Validate server mode."""
-        allowed_modes = ['stdio', 'http']
+        allowed_modes = ['stdio', 'sse']
         if v not in allowed_modes:
             raise ValueError(f"Mode must be one of: {allowed_modes}")
         return v

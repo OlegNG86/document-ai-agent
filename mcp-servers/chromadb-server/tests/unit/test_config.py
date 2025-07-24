@@ -225,14 +225,14 @@ class TestServerConfig:
             name="test-server",
             version="1.0.0",
             log_level="DEBUG",
-            mode="http",
+            mode="sse",
             host="0.0.0.0",
             port=8080
         )
         assert config.name == "test-server"
         assert config.version == "1.0.0"
         assert config.log_level == "DEBUG"
-        assert config.mode == "http"
+        assert config.mode == "sse"
         assert config.host == "0.0.0.0"
         assert config.port == 8080
     
@@ -255,7 +255,7 @@ class TestServerConfig:
     def test_mode_validation(self):
         """Test server mode validation."""
         # Valid modes
-        valid_modes = ["stdio", "http"]
+        valid_modes = ["stdio", "sse"]
         for mode in valid_modes:
             config = ServerConfig(mode=mode)
             assert config.mode == mode
@@ -413,7 +413,7 @@ tools:
             "server": {
                 "name": "test-server",
                 "log_level": "DEBUG",
-                "mode": "http",
+                "mode": "sse",
                 "port": 8080
             },
             "tools": {
