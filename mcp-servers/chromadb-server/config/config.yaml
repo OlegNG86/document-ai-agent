@@ -1,0 +1,20 @@
+server:
+  name: "chromadb-mcp-server"
+  version: "0.1.0"
+  log_level: "INFO"
+
+tools:
+  chromadb:
+    enabled: true
+    host: "localhost"
+    port: 8000
+    collection_prefix: "mcp_"
+    embedding:
+      provider: "openai"
+      model: "text-embedding-3-small"
+      api_key: "${OPENAI_API_KEY}"
+    chunking:
+      size: 1000
+      overlap: 200
+    search:
+      max_results: 10
