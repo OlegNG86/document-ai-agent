@@ -669,3 +669,88 @@ class QueryProcessor:
         
         return min(max(confidence, 0.0), 1.0)
     
+    def _calculate_compliance_confidence(self, response_text: str) -> float:
+        """Calculate confidence in compliance analysis based on response content.
+        
+        Args:
+            response_text: AI response text to analyze.
+            
+        Returns:
+            Confidence score between 0.0 and 1.0.
+        """
+        if not response_text:
+            return 0.0
+        
+        # Keywords that indicate thorough compliance analysis
+        compliance_keywords = [
+            'нарушения', 'несоответствия', 'требования', 'нормативы',
+            'статья', 'закон', 'рекомендации', 'заключение',
+            'соответствует', 'не соответствует', 'устранить'
+        ]
+        
+        # Count keyword occurrences
+        text_lower = response_text.lower()
+        keyword_count = sum(1 for keyword in compliance_keywords if keyword in text_lower)
+        
+        # Base confidence on response length and keyword density
+        response_length = len(response_text)
+        length_factor = min(response_length / 1000.0, 1.0)  # Normalize to 1000 chars
+        keyword_factor = min(keyword_count / len(compliance_keywords), 1.0)
+        
+        # Check for structured analysis (numbered lists, sections)
+        structure_indicators = ['1.', '2.', '3.', '•', '-', 'Рекомендации', 'Заключение']
+        structure_count = sum(1 for indicator in structure_indicators if indicator in response_text)
+        structure_factor = min(structure_count / 5.0, 1.0)
+        
+        # Combine factors
+        confidence = (length_factor * 0.3 + keyword_factor * 0.4 + structure_factor * 0.3)
+        
+        # Ensure minimum confidence for any response
+        confidence = max(confidence, 0.4)
+        
+        return min(confidence, 1.0)
+    
+    def _calculate_compliance_confidence_from_tree(
+        self, 
+        tree: Dict, 
+        context_confidence: float, 
+        analysis_confidence: float
+    ) -> tuple[float, Dict[str, float]]:
+        """Calculate compliance confidence from decision tree and component confidences.
+        
+        Args:
+            tree: Decision tree structure.
+            context_confidence: Confidence in found context.
+            analysis_confidence: Confidence in analysis capability.
+            
+        Returns:
+            Tuple of (overall_confidence, confidence_breakdown).
+        """
+        # Extract compliance confidence from tree if available
+        compliance_confidence = 0.7  # Default
+        
+        if tree and 'metadata' in tree:
+            compliance_confidence = tree['metadata'].get('compliance_confidence', 0.7)
+        
+        # Calculate weighted overall confidence
+        weights = {
+            'context': 0.3,
+            'analysis': 0.4,
+            'compliance': 0.3
+        }
+        
+        overall_confidence = (
+            context_confidence * weights['context'] +
+            analysis_confidence * weights['analysis'] +
+            compliance_confidence * weights['compliance']
+        )
+        
+        confidence_breakdown = {
+            'context_confidence': context_confidence,
+            'analysis_confidence': analysis_confidence,
+            'compliance_confidence': compliance_confidence,
+            'overall_confidence': overall_confidence
+        }
+        
+        return overall_confidence, confidence_breakdown
+    
