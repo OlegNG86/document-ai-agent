@@ -4,55 +4,22 @@ import asyncio
 import sys
 import os
 import argparse
+import logging
 from pathlib import Path
 from typing import Optional
 
-import yaml
-from pydantic import BaseModel
+from chromadb_mcp_server.core.config import ConfigManager, ServerConfig, ToolConfig
 
 
-class ServerConfig(BaseModel):
-    """Server configuration model."""
-    name: str = "chromadb-mcp-server"
-    version: str = "0.1.0"
-    log_level: str = "INFO"
-    mode: str = "stdio"  # stdio or http
-    host: str = "localhost"
-    port: int = 3000
-
-
-def load_config(config_path: Optional[Path] = None) -> dict:
-    """Load configuration from YAML file with environment variable substitution."""
-    if config_path is None:
-        config_path = Path(__file__).parent.parent.parent / "config" / "config.yaml"
-    
-    if not config_path.exists():
-        return {"server": {"name": "chromadb-mcp-server", "version": "0.1.0"}}
-    
-    with open(config_path, "r", encoding="utf-8") as f:
-        content = f.read()
-    
-    # Simple environment variable substitution
-    import re
-    def replace_env_vars(match):
-        var_name = match.group(1)
-        default_value = match.group(2) if match.group(2) else ""
-        return os.getenv(var_name, default_value)
-    
-    content = re.sub(r'\$\{([^}:]+)(?::([^}]*))?\}', replace_env_vars, content)
-    
-    return yaml.safe_load(content)
-
-
-async def start_http_server(config: ServerConfig) -> None:
+async def start_http_server(server_config: ServerConfig, tool_config: ToolConfig) -> None:
     """Start HTTP server for MCP over HTTP."""
     from fastapi import FastAPI
     from fastapi.responses import JSONResponse
     import uvicorn
     
     app = FastAPI(
-        title=config.name,
-        version=config.version,
+        title=server_config.name,
+        version=server_config.version,
         description="ChromaDB MCP Server - HTTP API"
     )
     
@@ -61,8 +28,15 @@ async def start_http_server(config: ServerConfig) -> None:
         """Health check endpoint."""
         return JSONResponse({
             "status": "healthy",
-            "service": config.name,
-            "version": config.version
+            "service": server_config.name,
+            "version": server_config.version,
+            "tools": {
+                "chromadb": {
+                    "enabled": tool_config.chromadb.enabled,
+                    "host": tool_config.chromadb.host,
+                    "port": tool_config.chromadb.port
+                }
+            }
         })
     
     @app.get("/mcp/tools")
@@ -100,20 +74,29 @@ async def start_http_server(config: ServerConfig) -> None:
             ]
         })
     
-    print(f"Starting HTTP server on {config.host}:{config.port}")
+    print(f"Starting HTTP server on {server_config.host}:{server_config.port}")
     await uvicorn.run(
         app,
-        host=config.host,
-        port=config.port,
-        log_level=config.log_level.lower()
+        host=server_config.host,
+        port=server_config.port,
+        log_level=server_config.log_level.lower()
     )
 
 
-async def start_stdio_server(config: ServerConfig) -> None:
+async def start_stdio_server(server_config: ServerConfig, tool_config: ToolConfig) -> None:
     """Start stdio server for traditional MCP."""
-    print(f"Starting {config.name} v{config.version} in stdio mode")
+    print(f"Starting {server_config.name} v{server_config.version} in stdio mode")
     print("Configuration loaded successfully")
     print("Server structure initialized")
+    
+    # Log configuration details
+    logging.info(f"Server: {server_config.name} v{server_config.version}")
+    logging.info(f"Log level: {server_config.log_level}")
+    logging.info(f"ChromaDB tool enabled: {tool_config.chromadb.enabled}")
+    if tool_config.chromadb.enabled:
+        logging.info(f"ChromaDB host: {tool_config.chromadb.host}:{tool_config.chromadb.port}")
+        logging.info(f"Embedding provider: {tool_config.chromadb.embedding.provider}")
+        logging.info(f"Chunk size: {tool_config.chromadb.chunking.size}")
     
     # TODO: Initialize MCP server in next tasks
     print("Ready for MCP server implementation...")
@@ -123,27 +106,39 @@ async def start_stdio_server(config: ServerConfig) -> None:
         await asyncio.sleep(1)
 
 
-async def main(mode: str = None, host: str = None, port: int = None) -> None:
+async def main(mode: str = None, host: str = None, port: int = None, config_path: str = None) -> None:
     """Main entry point."""
-    config_data = load_config()
-    server_config = config_data.get("server", {})
-    
-    # Override with command line arguments
-    if mode:
-        server_config["mode"] = mode
-    if host:
-        server_config["host"] = host
-    if port:
-        server_config["port"] = port
-    
-    config = ServerConfig(**server_config)
-    
-    print(f"Starting {config.name} v{config.version} in {config.mode} mode")
-    
-    if config.mode == "http":
-        await start_http_server(config)
-    else:
-        await start_stdio_server(config)
+    try:
+        # Load and validate configuration
+        config_manager = ConfigManager(Path(config_path) if config_path else None)
+        server_config, tool_config = config_manager.validate_and_load()
+        
+        # Override with command line arguments
+        if mode:
+            server_config.mode = mode
+        if host:
+            server_config.host = host
+        if port:
+            server_config.port = port
+        
+        # Setup logging
+        logging.basicConfig(
+            level=getattr(logging, server_config.log_level),
+            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            stream=sys.stderr
+        )
+        
+        logger = logging.getLogger(__name__)
+        logger.info(f"Starting {server_config.name} v{server_config.version} in {server_config.mode} mode")
+        
+        if server_config.mode == "http":
+            await start_http_server(server_config, tool_config)
+        else:
+            await start_stdio_server(server_config, tool_config)
+            
+    except Exception as e:
+        logging.error(f"Failed to start server: {e}")
+        raise
 
 
 def cli_main() -> None:
@@ -152,11 +147,12 @@ def cli_main() -> None:
     parser.add_argument("--mode", choices=["stdio", "http"], help="Server mode")
     parser.add_argument("--host", help="Host to bind to (HTTP mode only)")
     parser.add_argument("--port", type=int, help="Port to bind to (HTTP mode only)")
+    parser.add_argument("--config", help="Path to configuration file")
     
     args = parser.parse_args()
     
     try:
-        asyncio.run(main(args.mode, args.host, args.port))
+        asyncio.run(main(args.mode, args.host, args.port, args.config))
     except KeyboardInterrupt:
         print("\nServer stopped by user")
         sys.exit(0)

@@ -68,3 +68,10 @@ disallow_untyped_defs = true
 [tool.ruff]
 line-length = 88
 target-version = "py311"
+
+[dependency-groups]
+test = [
+    "pytest>=8.4.1",
+    "pytest-asyncio>=1.1.0",
+    "pytest-mock>=3.14.1",
+]
