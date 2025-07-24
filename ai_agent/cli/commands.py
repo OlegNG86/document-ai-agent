@@ -1735,7 +1735,16 @@ def _display_compliance_report(response, reference_doc_ids=None):
     metadata_parts = []
     if response.confidence_score:
         confidence_percent = int(response.confidence_score * 100)
-        metadata_parts.append(f"Уверенность: {confidence_percent}%")
+        
+        # Add confidence breakdown if available
+        confidence_text = f"Уверенность: {confidence_percent}%"
+        if hasattr(response, 'confidence_breakdown') and response.confidence_breakdown:
+            breakdown = response.confidence_breakdown
+            normative_pct = int(breakdown['normative_compliance'] * 100)
+            analysis_pct = int(breakdown['analysis_confidence'] * 100)
+            confidence_text += f" (соответствие нормативам: {normative_pct}%, уверенность в анализе: {analysis_pct}%)"
+        
+        metadata_parts.append(confidence_text)
     
     if response.processing_time:
         metadata_parts.append(f"Время анализа: {response.processing_time:.2f}с")
