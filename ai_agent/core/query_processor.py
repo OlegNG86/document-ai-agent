@@ -288,17 +288,26 @@ class QueryProcessor:
                 if doc_id:
                     response.add_relevant_document(doc_id)
             
-            # Calculate dynamic confidence based on multiple factors
-            confidence_score = self._calculate_compliance_confidence(
-                relevant_chunks=relevant_chunks,
-                response_text=response_text,
-                processing_time=processing_time
-            )
-            response.set_confidence_score(confidence_score)
-            
-            # Store confidence breakdown if available
-            if hasattr(self, '_last_confidence_breakdown'):
-                response.confidence_breakdown = self._last_confidence_breakdown
+            # Get confidence from decision tree if available
+            if decision_tree_output and hasattr(self, '_last_generated_tree'):
+                # Calculate confidence components for tree
+                context_confidence = self._calculate_context_confidence(relevant_chunks or [])
+                analysis_confidence = self._calculate_analysis_confidence({})
+                
+                # Get confidence from tree
+                confidence_score, confidence_breakdown = self._calculate_compliance_confidence_from_tree(
+                    self._last_generated_tree,
+                    context_confidence,
+                    analysis_confidence
+                )
+                response.set_confidence_score(confidence_score)
+                response.confidence_breakdown = confidence_breakdown
+            else:
+                # Fallback to simple calculation
+                if relevant_chunks:
+                    response.set_confidence_score(0.8)
+                else:
+                    response.set_confidence_score(0.4)
             
             # Add assistant message to session
             assistant_metadata = {
@@ -660,108 +669,3 @@ class QueryProcessor:
         
         return min(max(confidence, 0.0), 1.0)
     
-    def _calculate_compliance_confidence(
-        self, 
-        relevant_chunks: List[Dict] = None, 
-        response_text: str = "", 
-        processing_time: float = 0.0
-    ) -> float:
-        """Calculate dynamic confidence in compliance result based on multiple factors.
-        
-        Args:
-            relevant_chunks: List of relevant document chunks found.
-            response_text: The AI response text.
-            processing_time: Time taken to process the request.
-            
-        Returns:
-            Confidence score between 0.0 and 1.0.
-        """
-        # Base confidence factors
-        context_confidence = 0.5
-        content_confidence = 0.5
-        processing_confidence = 0.5
-        
-        # 1. Context confidence based on found documents
-        if relevant_chunks:
-            # Ensure chunks are dictionaries and calculate quality
-            valid_chunks = [chunk for chunk in relevant_chunks if isinstance(chunk, dict)]
-            if valid_chunks:
-                avg_relevance = sum(chunk.get('relevance_score', 0.5) for chunk in valid_chunks) / len(valid_chunks)
-                # Quantity factor (more documents = higher confidence, but with diminishing returns)
-                quantity_factor = min(len(valid_chunks) / 10.0, 1.0)  # Max at 10 documents
-                context_confidence = (avg_relevance * 0.7) + (quantity_factor * 0.3)
-            else:
-                context_confidence = 0.3  # Some chunks found but invalid format
-        else:
-            context_confidence = 0.2  # Low confidence without reference docs
-        
-        # 2. Content confidence based on response analysis
-        if response_text:
-            response_lower = response_text.lower()
-            
-            # High confidence indicators
-            high_confidence_words = [
-                'полностью соответствует', 'четко определен', 'явно указан',
-                'безусловно', 'определенно', 'точно соответствует', 'соответствует требованиям'
-            ]
-            
-            # Low confidence indicators  
-            low_confidence_words = [
-                'возможно', 'вероятно', 'может быть', 'предположительно',
-                'неясно', 'сложно определить', 'требует уточнения', 'необходимо проверить'
-            ]
-            
-            # Medium confidence indicators
-            medium_confidence_words = [
-                'соответствует с замечаниями', 'в целом соответствует',
-                'частично соответствует', 'с некоторыми нарушениями'
-            ]
-            
-            # Count indicators
-            high_count = sum(1 for word in high_confidence_words if word in response_lower)
-            low_count = sum(1 for word in low_confidence_words if word in response_lower)
-            medium_count = sum(1 for word in medium_confidence_words if word in response_lower)
-            
-            # Calculate content confidence
-            if high_count > low_count:
-                content_confidence = 0.7 + min(high_count * 0.05, 0.2)
-            elif low_count > high_count:
-                content_confidence = 0.4 - min(low_count * 0.05, 0.2)
-            elif medium_count > 0:
-                content_confidence = 0.6
-            else:
-                content_confidence = 0.5
-        
-        # 3. Processing confidence based on response time
-        if processing_time > 0:
-            # Optimal processing time is around 15-30 seconds
-            # Too fast might indicate shallow analysis, too slow might indicate uncertainty
-            if 15 <= processing_time <= 30:
-                processing_confidence = 0.8
-            elif 10 <= processing_time < 15 or 30 < processing_time <= 45:
-                processing_confidence = 0.6
-            elif processing_time < 10:
-                processing_confidence = 0.4  # Too fast
-            else:
-                processing_confidence = 0.5  # Too slow
-        
-        # Weighted average of all confidence factors
-        final_confidence = (
-            context_confidence * 0.5 +      # 50% weight on document quality
-            content_confidence * 0.35 +     # 35% weight on response analysis  
-            processing_confidence * 0.15    # 15% weight on processing time
-        )
-        
-        # Store confidence breakdown for display
-        confidence_breakdown = {
-            'context': context_confidence,
-            'content': content_confidence, 
-            'processing': processing_confidence,
-            'final': min(max(final_confidence, 0.0), 1.0)
-        }
-        
-        # Store breakdown in a way that can be accessed later
-        if hasattr(self, '_last_confidence_breakdown'):
-            self._last_confidence_breakdown = confidence_breakdown
-        
-        return min(max(final_confidence, 0.0), 1.0)
